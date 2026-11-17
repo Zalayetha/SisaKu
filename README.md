@@ -14,13 +14,13 @@ docker compose up -d   # Postgres, Redis, Qdrant
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `pnpm lint` | oxlint across the repo |
-| `pnpm format:check` | Prettier check (`pnpm format` to fix) |
-| `pnpm typecheck` | `tsc --noEmit` in every workspace package |
-| `pnpm test` | Vitest across the repo |
-| `pnpm build` | Compile every workspace package to `dist/` |
+| Command             | What it does                               |
+| ------------------- | ------------------------------------------ |
+| `pnpm lint`         | oxlint across the repo                     |
+| `pnpm format:check` | Prettier check (`pnpm format` to fix)      |
+| `pnpm typecheck`    | `tsc --noEmit` in every workspace package  |
+| `pnpm test`         | Vitest across the repo                     |
+| `pnpm build`        | Compile every workspace package to `dist/` |
 
 The pre-commit hook runs `pnpm lint` and `pnpm typecheck`. CI (`.github/workflows/ci.yml`) runs install, lint, format check, typecheck, test, and build on every push.
 

@@ -7,3 +7,4 @@ pnpm-lock.yaml
 CLAUDE.md
 prd.md
 technical-design.md
+.github/workflows/pullfrog.yml
