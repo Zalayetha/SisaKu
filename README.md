@@ -4,7 +4,7 @@ SisaKu tells commercial kitchens how much to cook tomorrow so less food is binne
 
 ## Setup
 
-Requirements: Node 22 (see `.nvmrc`), pnpm 9.15.9, Docker.
+Requirements: Node 24.12.0 (see `.nvmrc`), pnpm 9.15.9, Docker.
 
 ```sh
 pnpm install           # also installs Git hooks via Husky
