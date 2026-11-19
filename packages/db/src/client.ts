@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import * as schema from "./schema/index.js";
+import * as schema from "./schema/index";
 
 export function createDb(url = process.env.DATABASE_URL) {
   if (!url) throw new Error("DATABASE_URL is not set");
