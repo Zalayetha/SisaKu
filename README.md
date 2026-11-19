@@ -17,12 +17,15 @@ docker compose up -d   # Postgres, Redis, Qdrant
 | Command             | What it does                               |
 | ------------------- | ------------------------------------------ |
 | `pnpm lint`         | oxlint across the repo                     |
-| `pnpm format:check` | Prettier check (`pnpm format` to fix)      |
+| `pnpm format:check` | Oxfmt check (`pnpm format` to fix)         |
 | `pnpm typecheck`    | `tsc --noEmit` in every workspace package  |
 | `pnpm test`         | Vitest across the repo                     |
 | `pnpm build`        | Compile every workspace package to `dist/` |
+| `pnpm test:e2e`     | Playwright tests in `e2e/` (root)          |
 
-The pre-commit hook runs `pnpm lint` and `pnpm typecheck`. CI (`.github/workflows/ci.yml`) runs install, lint, format check, typecheck, test, and build on every push.
+The pre-commit hook runs `pnpm lint` and `pnpm typecheck`. CI (`.github/workflows/ci.yml`) runs install, lint, format check, typecheck, test, and build on every push, plus a separate Playwright e2e job.
+
+Decisions and product notes are in `docs/` (see `AGENTS.md` for the index and format).
 
 ## Layout
 

@@ -13,15 +13,17 @@
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "vitest run --passWithNoTests",
     "lint": "oxlint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "prepare": "husky"
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "prepare": "husky",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^22.10.0",
     "husky": "^9.1.7",
+    "oxfmt": "^0.79.0",
     "oxlint": "^0.16.0",
-    "prettier": "^3.4.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }
