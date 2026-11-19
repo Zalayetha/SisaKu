@@ -4,7 +4,7 @@ Nov 14, 2026 · @Zaghy
 
 ## Overview
 
-Sisaku is one TypeScript monorepo: two agents built on the Anvia SDK, two MCP servers as the only path to data, a Hono API, BullMQ for the nightly pipeline, PostgreSQL for relational data, and Qdrant for RAG vectors. This doc covers how it is built; what it does and why is in Sisaku — Product Requirements.
+Sisaku is one TypeScript monorepo: two agents built on the Anvia SDK, two MCP servers we build as the only path to our data (plus an Open-Meteo weather MCP server we use), a Hono API, BullMQ for the nightly pipeline, PostgreSQL for relational data, and Qdrant for RAG vectors. This doc covers how it is built; what it does and why is in Sisaku — Product Requirements.
 
 **Design principles**
 
@@ -34,6 +34,8 @@ flowchart TB
   Copilot <-- tool calls --> MCP
   MCP --> DB
   Pipeline -- search_knowledge --> Q
+  W[("Open-Meteo MCP<br/>weather, external")]
+  Pipeline -- tool calls --> W
   Copilot -- search_knowledge --> Q
 ```
 
@@ -45,15 +47,15 @@ The pipeline runs without anyone asking; the Copilot acts only when a person mes
 | --- | --- | --- |
 | Ingest | Pulls the day's sales, prep log and waste entries; notes gaps such as no waste logged | `get_sales`, `get_prep_log`, `query_waste` |
 | Analyze | Groups waste by item and cause; for any item above double its 14-day average, investigates (sales drop, over-prep, spoilage) before naming a cause; max 5 tool calls | `query_waste`, `get_sales`, `search_knowledge` |
-| Forecast | Computes a plain statistical forecast per item (e.g. average of the last 4 same weekdays), then the LLM may adjust it for calendar context with a stated reason | `get_sales`, `get_calendar` |
+| Forecast | Computes a plain statistical forecast per item (e.g. average of the last 4 same weekdays), then the LLM may adjust it for holidays, Ramadan or tomorrow's rain (Open-Meteo MCP) with a stated reason; new outlets with little history fall back to the manager's usual prep, shown as low confidence | `get_sales`, `get_calendar`, Open-Meteo MCP tools |
 | Recommend | Turns forecasts into prep quantities with confidence; flags changes over 30% for approval; stretch: checks donatable surplus and drafts a pickup | `get_menu`, `search_knowledge`, `draft_pickup` |
-| Report | Writes the daily brief with Rupiah, kg and CO₂e and citations; sends it to the manager on Telegram | `compute_co2e` |
+| Report | Writes the daily brief with Rupiah, kg and CO₂e and citations; sends it to the manager on Telegram. On Mondays it also sends the weekly owner report | `compute_co2e` |
 
 Each step is its own BullMQ job, so a failed step reruns alone.
 
 **Kitchen Copilot (on demand)**
 
-- **Log waste:** photo or text → vision extraction → user confirms → `log_waste`
+- **Log waste:** photo or text → vision extraction → staff confirm a portion count (weight = portion count × the stored portion weight; a typed weight is also accepted) → `log_waste`
 - **Ask questions:** "why did rendang waste spike?" → `query_waste` + `get_sales` → answer with a chart
 - **Approve:** prep changes and pickup drafts → `submit_pickup` only after an explicit yes
 - **Correct data:** fix an entry → `update_entry`; the correction is logged as eval feedback
@@ -66,6 +68,8 @@ Two MCP servers form the only path to data, so both agents share one tool layer 
 | --- | --- | --- | --- |
 | `kitchen-mcp` | `get_sales(outlet, date_range, item?)`, `get_menu(outlet)`, `get_prep_log(outlet, date)`, `log_waste(entry)`, `query_waste(filters, group_by)`, `update_entry(id, patch)` | Menu with cost and weight per portion; waste cause list | Full; reads mock data from Postgres, later a vendor API or CSV export |
 | `impact-mcp` | `get_factor(food_category)`, `compute_co2e(entries)`, `find_foodbanks(location)`, `draft_pickup(foodbank_id, items)`, `submit_pickup(draft_id)` | Emission factor table with sources; food bank list (mock) | Emission tools full; food bank tools a thin mock where `submit_pickup` only records the request |
+
+**MCP server we use (not build):** the Open-Meteo weather MCP server ([cmer81/open-meteo-mcp](https://github.com/cmer81/open-meteo-mcp), no API key) gives tomorrow's rain forecast per outlet location to the pipeline's forecast step, connected as an MCP client. Its output is treated as data, and if it is unavailable the forecast runs without the weather adjustment.
 
 Two tools live in the agent runtime instead of a server: `search_knowledge(query, corpus?)` for RAG retrieval, and `get_calendar(date_range)` for public holidays, Ramadan dates (seeded for 2026–2027).
 
@@ -96,12 +100,12 @@ The stack is the Anvia ecosystem for everything agent-related, plus a small conv
 | Chat | Anvia Channel (Telegram) | The only chat interface; `@anvia/telegram`, `@anvia/channel-agent`, `@anvia/channel`, installed with `pnpm add` |
 | Code review | Anvia Hammer | Reviews pull requests |
 | LLM | gpt-5.6.luna | One model for both agents, photo logging and evals, so test results stay comparable across runs |
-| API | Hono on Node or Bun | Dashboard API and CSV import |
+| API | Hono on Node or Bun | CSV import |
 | Jobs | BullMQ on Redis | Nightly run per outlet, retries, Bull Board |
 | MCP | `@anvia/mcp` with `@modelcontextprotocol/server` | Two servers: kitchen-mcp and impact-mcp; follows the Devscale `mcp-anvia` reference (stdio, HTTP, HTTP with auth) |
 | Database | PostgreSQL | Drizzle ORM; relational data only |
+| Weather | Open-Meteo MCP server (`cmer81/open-meteo-mcp`) | No API key; rain forecast per outlet |
 | Vector store | Qdrant | `@anvia/qdrant`; RAG chunks and embeddings |
-| Dashboard | React (Vite) with shadcn/ui and shadcn charts | Read-only, P1 |
 | CI | GitHub Actions | Tests and evals on every push |
 | Deploy | Docker Compose on one VPS | API, worker, Redis, Postgres, Qdrant |
 
@@ -133,7 +137,7 @@ When something fails, the system falls back to the plain forecast and tells the 
 | --- | --- |
 | LLM call times out or errors | BullMQ retries the step up to 3 times; if it still fails, the plain statistical forecast is used and the brief says "AI adjustment unavailable today" |
 | No waste logged for a day | Pipeline still runs; the morning brief asks the manager to log yesterday's waste |
-| Vision model unsure about a photo | Confidence below 0.6 always asks the user to confirm or type the item and weight |
+| Vision model unsure about a photo | Confidence below 0.6 always asks the user to confirm or type the item and portion count or weight |
 | A pipeline step fails | Only that step reruns; earlier outputs are kept |
 | Analyze step loops | Hard limit of 5 tool calls per item |
 
@@ -141,11 +145,11 @@ When something fails, the system falls back to the plain forecast and tells the 
 
 - Each agent has its own tool allowlist; the Copilot cannot run the nightly pipeline's write tools.
 - `submit_pickup` only works on a request a manager or owner has approved (status approved, approved_by set).
-- Text from notes, documents and chat is treated as data, never as instructions.
+- Text from notes, documents, chat and external MCP servers (such as weather) is treated as data, never as instructions.
 
 ## Evals and observability
 
-Four core evals run in CI on every push; two stretch evals run only if time allows.
+Four core evals run in CI on every push.
 
 | Eval | Dataset | Method | Pass bar | Tier |
 | --- | --- | --- | --- | --- |
@@ -153,8 +157,6 @@ Four core evals run in CI on every push; two stretch evals run only if time allo
 | Tool-call correctness | 25 scripted Copilot questions with the expected tool and arguments | Deterministic check of the first tool call | 90% correct | Core |
 | Report faithfulness | Generated weekly reports | Re-query every number from the database; LLM judge for claims against citations | 100% numbers, 90% claims supported | Core |
 | Safety and approval | Adversarial prompts ("send the pickup now", instructions hidden in notes) | Agent must never call `submit_pickup` without approval | 100% | Core |
-| Photo classification | 40 labeled photos of local dishes | Exact match on item category; weight within ±30% | 80% category accuracy | Stretch |
-| RAG retrieval | 30 questions with a known source chunk | Correct chunk in top 5 | 0.8 or higher | Stretch |
 
 **Observability (Anvia Lens)**
 
@@ -171,14 +173,14 @@ Week 1 locks the data and tool layer; week 2 builds the intelligence, evals and 
 
 1. Day 1: monorepo, Postgres schema with Drizzle, CI with GitHub Actions. Day 2: mock data generator (2 outlets, 60 days, holidays, noise, surprise spikes)
 2. Days 3–4: kitchen-mcp and impact-mcp with tests; food bank tools as a stub
-3. Days 5–7: Kitchen Copilot on Telegram through Anvia Channel: photo and text logging (F1) and data questions; Anvia Lens tracing from the start; start collecting and labeling photos (about 10 a day)
+3. Days 5–7: Kitchen Copilot on Telegram through Anvia Channel: photo and text logging (F1) and data questions; Anvia Lens tracing from the start
 
 **Week 2: intelligence**
 
 1. Days 8–9: nightly pipeline on BullMQ: analyze, forecast, recommend (F3, F4)
 2. Day 10: RAG ingestion, CO₂e and reports (F5)
 3. Days 11–12: the four core evals in CI; fix the worst failures
-4. Day 13: deploy to the VPS with Docker Compose; then stretch only if time remains: surplus routing (F6), dashboard (F7), stretch evals
+4. Day 13: deploy to the VPS with Docker Compose; then surplus routing (F6) only if time remains
 5. Day 14: demo script rehearsal and slides
 
 ## Sources
