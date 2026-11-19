@@ -7,7 +7,8 @@ docs/
 ├── decision/
 │   ├── 0001-use-pnpm-workspace.md
 │   ├── 0002-use-oxlint-oxfmt-and-husky.md
-│   └── 0003-use-root-playwright-tests.md
+│   ├── 0003-use-root-playwright-tests.md
+│   └── 0004-use-tsup-bundler-with-bundler-resolution.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

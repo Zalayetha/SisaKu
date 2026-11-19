@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json --out-dir dist",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
