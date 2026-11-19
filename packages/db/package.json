@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts", "./schema": "./src/schema/index.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts up",
@@ -14,6 +17,15 @@
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "drizzle-orm": "^0.44.0", "pg": "^8.13.0" },
-  "devDependencies": { "@types/pg": "^8.11.0", "@types/node": "^22.0.0", "drizzle-kit": "^0.31.0", "tsx": "^4.19.0", "typescript": "^5.6.0" }
+  "dependencies": {
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.31.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
 }

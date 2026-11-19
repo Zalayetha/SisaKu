@@ -188,12 +188,8 @@
           "name": "forecasts_run_id_agent_runs_id_fk",
           "tableFrom": "forecasts",
           "tableTo": "agent_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -201,12 +197,8 @@
           "name": "forecasts_outlet_id_outlets_id_fk",
           "tableFrom": "forecasts",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -214,12 +206,8 @@
           "name": "forecasts_item_id_menu_items_id_fk",
           "tableFrom": "forecasts",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -300,12 +288,8 @@
           "name": "menu_items_outlet_id_outlets_id_fk",
           "tableFrom": "menu_items",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -412,12 +396,8 @@
           "name": "pickup_requests_outlet_id_outlets_id_fk",
           "tableFrom": "pickup_requests",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -425,12 +405,8 @@
           "name": "pickup_requests_approved_by_users_id_fk",
           "tableFrom": "pickup_requests",
           "tableTo": "users",
-          "columnsFrom": [
-            "approved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["approved_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -476,12 +452,8 @@
           "name": "prep_logs_outlet_id_outlets_id_fk",
           "tableFrom": "prep_logs",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -489,12 +461,8 @@
           "name": "prep_logs_item_id_menu_items_id_fk",
           "tableFrom": "prep_logs",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -502,11 +470,7 @@
       "compositePrimaryKeys": {
         "prep_logs_outlet_id_item_id_date_pk": {
           "name": "prep_logs_outlet_id_item_id_date_pk",
-          "columns": [
-            "outlet_id",
-            "item_id",
-            "date"
-          ]
+          "columns": ["outlet_id", "item_id", "date"]
         }
       },
       "uniqueConstraints": {},
@@ -570,12 +534,8 @@
           "name": "recommendations_run_id_agent_runs_id_fk",
           "tableFrom": "recommendations",
           "tableTo": "agent_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -583,12 +543,8 @@
           "name": "recommendations_forecast_id_forecasts_id_fk",
           "tableFrom": "recommendations",
           "tableTo": "forecasts",
-          "columnsFrom": [
-            "forecast_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["forecast_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -596,12 +552,8 @@
           "name": "recommendations_approved_by_users_id_fk",
           "tableFrom": "recommendations",
           "tableTo": "users",
-          "columnsFrom": [
-            "approved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["approved_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -647,12 +599,8 @@
           "name": "sales_outlet_id_outlets_id_fk",
           "tableFrom": "sales",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -660,12 +608,8 @@
           "name": "sales_item_id_menu_items_id_fk",
           "tableFrom": "sales",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -673,11 +617,7 @@
       "compositePrimaryKeys": {
         "sales_outlet_id_item_id_date_pk": {
           "name": "sales_outlet_id_item_id_date_pk",
-          "columns": [
-            "outlet_id",
-            "item_id",
-            "date"
-          ]
+          "columns": ["outlet_id", "item_id", "date"]
         }
       },
       "uniqueConstraints": {},
@@ -729,12 +669,8 @@
           "name": "users_outlet_id_outlets_id_fk",
           "tableFrom": "users",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -744,9 +680,7 @@
         "users_telegram_user_id_unique": {
           "name": "users_telegram_user_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "telegram_user_id"
-          ]
+          "columns": ["telegram_user_id"]
         }
       },
       "policies": {},
@@ -855,12 +789,8 @@
           "name": "waste_entries_outlet_id_outlets_id_fk",
           "tableFrom": "waste_entries",
           "tableTo": "outlets",
-          "columnsFrom": [
-            "outlet_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["outlet_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -868,12 +798,8 @@
           "name": "waste_entries_item_id_menu_items_id_fk",
           "tableFrom": "waste_entries",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -881,12 +807,8 @@
           "name": "waste_entries_confirmed_by_users_id_fk",
           "tableFrom": "waste_entries",
           "tableTo": "users",
-          "columnsFrom": [
-            "confirmed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["confirmed_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -902,48 +824,27 @@
     "public.agent_run_status": {
       "name": "agent_run_status",
       "schema": "public",
-      "values": [
-        "running",
-        "succeeded",
-        "failed"
-      ]
+      "values": ["running", "succeeded", "failed"]
     },
     "public.pickup_status": {
       "name": "pickup_status",
       "schema": "public",
-      "values": [
-        "draft",
-        "pending",
-        "approved",
-        "rejected",
-        "submitted"
-      ]
+      "values": ["draft", "pending", "approved", "rejected", "submitted"]
     },
     "public.recommendation_status": {
       "name": "recommendation_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "approved",
-        "rejected"
-      ]
+      "values": ["pending", "approved", "rejected"]
     },
     "public.user_role": {
       "name": "user_role",
       "schema": "public",
-      "values": [
-        "staff",
-        "manager",
-        "owner"
-      ]
+      "values": ["staff", "manager", "owner"]
     },
     "public.waste_source": {
       "name": "waste_source",
       "schema": "public",
-      "values": [
-        "photo",
-        "text"
-      ]
+      "values": ["photo", "text"]
     }
   },
   "schemas": {},
