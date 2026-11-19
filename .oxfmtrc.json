@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "pnpm-lock.yaml",
+    ".multica",
+    ".claude",
+    "CLAUDE.md",
+    "prd.md",
+    "technical-design.md",
+    ".github/workflows/pullfrog.yml"
+  ]
+}
