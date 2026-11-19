@@ -9,6 +9,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts up",
     "db:rollback": "tsx scripts/migrate.ts down",
+    "db:import-csv": "tsx scripts/import-csv.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc -p tsconfig.json --noEmit"
