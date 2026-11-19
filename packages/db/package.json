@@ -4,9 +4,23 @@
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean --tsconfig tsconfig.build.json --out-dir dist && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts up",
+    "db:rollback": "tsx scripts/migrate.ts down",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  }
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.0",
+    "tsx": "^4.19.0"
+  },
+  "types": "./dist/index.d.ts"
 }
