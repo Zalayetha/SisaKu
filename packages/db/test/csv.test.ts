@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   csvTables,
   parseCsv,
@@ -74,12 +76,30 @@ describe("csv validation", () => {
     ]);
     expect(readCsv("menu_items", m).errors[0]!.message).toMatch(/more than 3 decimal places/);
   });
+  it("rejects numerics that would overflow the column", () => {
+    const m = (w: string) =>
+      readCsv(
+        "menu_items",
+        serializeCsv("menu_items", [{ ...sample.menu_items[0]!, portion_weight_kg: w }]),
+      );
+    expect(m("123456.000").errors[0]!.message).toMatch(/more than 5 digits before/);
+    expect(m("99999.999").errors).toEqual([]);
+  });
   it("reports unterminated quotes", () => {
     expect(parseCsv('a,"b\n').error).toMatch(/unterminated/);
   });
 });
 
 const url = process.env.TEST_DATABASE_URL;
+beforeAll(() => {
+  if (!url) return;
+  // Make sure the schema exists on an empty test DB (migrating up is idempotent).
+  execSync("pnpm exec tsx scripts/migrate.ts up", {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    stdio: "pipe",
+    env: { ...process.env, DATABASE_URL: url },
+  });
+});
 it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothing", async () => {
   const { db, pool } = createDb(url);
   try {
@@ -92,6 +112,11 @@ it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothin
     expect(r.rows).toEqual([{ qty_sold: 42 }]);
     const bad = await importCsv(db, { sales: "outlet_id,item_id,date,qty_sold\nx,y,z,w\n" });
     expect(bad.ok).toBe(false);
+    const orphan = await importCsv(db, {
+      sales: serializeCsv("sales", [{ ...sample.sales[0]!, item_id: O, date: "2026-11-02" }]),
+    });
+    expect(orphan.ok).toBe(false);
+    expect(orphan.errors[0]).toMatchObject({ file: "sales", line: 2, column: "item_id" });
   } finally {
     await pool.query("truncate prep_logs, sales, menu_items, outlets cascade");
     await pool.end();

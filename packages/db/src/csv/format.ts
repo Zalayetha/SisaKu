@@ -17,6 +17,8 @@ export interface Column {
   nullable?: boolean;
   /** numeric: max fractional digits */
   scale?: number;
+  /** numeric: max total digits (matches the Postgres column), so overflow is caught per line */
+  precision?: number;
   /** int/numeric: minimum allowed value */
   min?: number;
 }
@@ -36,8 +38,8 @@ export const csvTables = {
       { name: "outlet_id", key: "outletId", kind: "uuid" },
       { name: "name", key: "name", kind: "text" },
       { name: "category", key: "category", kind: "text" },
-      { name: "cost_per_portion", key: "costPerPortion", kind: "numeric", scale: 2, min: 0 },
-      { name: "portion_weight_kg", key: "portionWeightKg", kind: "numeric", scale: 3, min: 0 },
+      { name: "cost_per_portion", key: "costPerPortion", kind: "numeric", precision: 12, scale: 2, min: 0 },
+      { name: "portion_weight_kg", key: "portionWeightKg", kind: "numeric", precision: 8, scale: 3, min: 0 },
       { name: "food_category", key: "foodCategory", kind: "text" },
     ],
   },
@@ -171,6 +173,12 @@ function parseCell(
       const frac = raw.split(".")[1]?.length ?? 0;
       if (col.scale !== undefined && frac > col.scale)
         return { error: `"${raw}" has more than ${col.scale} decimal places` };
+      if (col.precision !== undefined) {
+        const maxInt = col.precision - (col.scale ?? 0);
+        const intDigits = raw.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\d)/, "").length;
+        if (intDigits > maxInt)
+          return { error: `"${raw}" has more than ${maxInt} digits before the decimal point` };
+      }
       return col.min !== undefined && Number(raw) < col.min
         ? { error: `${raw} is below the minimum ${col.min}` }
         : { value: raw };
@@ -187,11 +195,13 @@ export function readCsv(table: CsvTableName, text: string) {
   const cols = csvTables[table].columns as readonly Column[];
   const errors: CsvError[] = [];
   const rows: CsvRow[] = [];
+  /** line number of each entry in `rows` */
+  const rowLines: number[] = [];
   const { records, lines, error } = parseCsv(text);
   if (error) errors.push({ line: 0, message: error });
   if (records.length === 0) {
     errors.push({ line: 0, message: "file is empty: header row required" });
-    return { rows, errors };
+    return { rows, rowLines, errors };
   }
   const header = records[0]!.map((h) => h.trim());
   const expected = cols.map((c) => c.name);
@@ -200,7 +210,7 @@ export function readCsv(table: CsvTableName, text: string) {
       line: 1,
       message: `header must be exactly: ${expected.join(",")} (got: ${header.join(",")})`,
     });
-    return { rows, errors };
+    return { rows, rowLines, errors };
   }
   const seen = new Map<string, number>();
   const pk = table === "sales" || table === "prep_logs" ? ["outlet_id", "item_id", "date"] : ["id"];
@@ -232,8 +242,9 @@ export function readCsv(table: CsvTableName, text: string) {
     }
     seen.set(key, line);
     rows.push(row);
+    rowLines.push(line);
   }
-  return { rows, errors };
+  return { rows, rowLines, errors };
 }
 
 export const formatErrors = (file: string, errors: readonly CsvError[]) =>

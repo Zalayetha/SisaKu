@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { menuItems, outlets, prepLogs, sales } from "../schema/index";
 import { csvTables, readCsv, type CsvError, type CsvRow, type CsvTableName } from "./format";
@@ -14,6 +14,61 @@ export const IMPORT_ORDER: readonly CsvTableName[] = [
 
 const toRecord = (table: CsvTableName, row: CsvRow) =>
   Object.fromEntries(csvTables[table].columns.map((c) => [c.key, row[c.name]]));
+
+const REFS: Record<string, { col: string; parent: "outlets" | "menu_items" }[]> = {
+  menu_items: [{ col: "outlet_id", parent: "outlets" }],
+  sales: [
+    { col: "outlet_id", parent: "outlets" },
+    { col: "item_id", parent: "menu_items" },
+  ],
+  prep_logs: [
+    { col: "outlet_id", parent: "outlets" },
+    { col: "item_id", parent: "menu_items" },
+  ],
+};
+
+const chunks = <T>(a: T[], n: number) =>
+  Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+
+/** Foreign keys must point at a row in this import or already in the database. */
+async function checkReferences(
+  db: NodePgDatabase<any>,
+  parsed: [CsvTableName, CsvRow[]][],
+  lineOf: Partial<Record<CsvTableName, number[]>>,
+): Promise<ImportResult["errors"]> {
+  const known: Partial<Record<CsvTableName, Set<string>>> = {};
+  for (const [name, rows] of parsed) known[name] = new Set(rows.map((r) => r["id"] as string));
+  const errors: ImportResult["errors"] = [];
+  for (const parent of ["outlets", "menu_items"] as const) {
+    const wanted = new Set<string>();
+    for (const [name, rows] of parsed)
+      for (const ref of REFS[name] ?? [])
+        if (ref.parent === parent)
+          for (const r of rows) {
+            const v = r[ref.col] as string;
+            if (!known[parent]?.has(v)) wanted.add(v);
+          }
+    const found = new Set<string>();
+    const t = tables[parent];
+    for (const chunk of chunks([...wanted], 1000))
+      for (const row of await db.select({ id: t.id }).from(t).where(inArray(t.id, chunk)))
+        found.add(row.id);
+    for (const [name, rows] of parsed)
+      for (const ref of REFS[name] ?? [])
+        if (ref.parent === parent)
+          rows.forEach((r, i) => {
+            const v = r[ref.col] as string;
+            if (!known[parent]?.has(v) && !found.has(v))
+              errors.push({
+                file: name,
+                line: lineOf[name]![i]!,
+                column: ref.col,
+                message: `${ref.col}: no ${parent} row with id ${v} in the files or the database`,
+              });
+          });
+  }
+  return errors.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
 
 export interface ImportResult {
   ok: boolean;
@@ -31,6 +86,7 @@ export async function importCsv(
   files: Partial<Record<CsvTableName, string>>,
 ): Promise<ImportResult> {
   const parsed: [CsvTableName, CsvRow[]][] = [];
+  const lineOf: Partial<Record<CsvTableName, number[]>> = {};
   const errors: ImportResult["errors"] = [];
   for (const name of IMPORT_ORDER) {
     const text = files[name];
@@ -38,7 +94,9 @@ export async function importCsv(
     const r = readCsv(name, text);
     errors.push(...r.errors.map((e) => ({ ...e, file: name })));
     parsed.push([name, r.rows]);
+    lineOf[name] = r.rowLines;
   }
+  if (!errors.length) errors.push(...(await checkReferences(db, parsed, lineOf)));
   if (errors.length) return { ok: false, inserted: {}, errors };
   const inserted: ImportResult["inserted"] = {};
   await db.transaction(async (tx) => {
