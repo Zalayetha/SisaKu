@@ -16,7 +16,7 @@ SisaKu has no real outlet data yet. Agents, forecasts and evals need realistic s
 - **Calendar:** `src/calendar.ts` holds a fixed 2026–2027 Indonesian calendar (Ramadan, Eid, public holidays) with a demand factor per event. `get_calendar` can reuse it later.
 - **Hidden spikes:** the generator adds demand spikes only on days with no calendar event, and always places some inside the held-out window. Their ground truth is returned in `dataset.spikes` for evals and is never written to the database.
 - **Loading:** inserts run in one transaction, in batches of 1000. `--reset` truncates the mock-data tables (and the forecasts, recommendations and pickup requests that reference them) first, so re-running is idempotent. `emission_factors` and `agent_runs` are left alone. The CLI labels its output as `SIMULATED`.
-- **Build:** unlike decision 0004, this package is not built. It is a dev tool run from source with `tsx`, `main` points at `src/index.ts`, and its `tsconfig.json` maps `@sisaku/db` to `../db/src/index.ts`, so `pnpm typecheck` passes before `@sisaku/db` is built.
+- **Build:** unlike decision 0004, this package is not built. It only generates mock data, so it is a dev tool run from source with `tsx`. Relative imports keep their `.js` extensions on purpose, `main` points at `src/index.ts`, and its `tsconfig.json` maps `@sisaku/db` to `../db/src/index.ts`, so `pnpm typecheck` passes before `@sisaku/db` is built.
 
 ## Consequences
 
@@ -24,4 +24,4 @@ SisaKu has no real outlet data yet. Agents, forecasts and evals need realistic s
 - The calendar is hand-maintained and may be off by a day against the official calendar. It needs new entries before 2028.
 - Spike ground truth exists only in memory. An eval must call `generateMockData` with the same options as the seed run; it cannot read the spikes from Postgres.
 - `--reset` deletes forecasts, recommendations and pickup requests. Never run it against a database with data that should be kept.
-- The package uses `.js` import extensions and `tsx`, which differs from other packages. If it ever needs to ship, move it to the tsup build from 0004.
+- The `.js` imports and `tsx` runner are an accepted exception to 0004 for this dev-only package. If it ever needs to ship, move it to the tsup build.
