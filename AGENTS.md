@@ -86,6 +86,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0005: Use Drizzle for the Postgres schema, with hand-written down migrations](decision/0005-use-drizzle-postgres-schema-with-sql-migrations.md)
 - [0006: Use a seeded, deterministic mock-data generator](decision/0006-use-seeded-mock-data-generator.md)
 - [0007: Import sales, prep logs and menu from CSV through `@sisaku/db`](decision/0007-use-csv-import-in-db-package.md)
+- [0008: Enforce outlet and item pairing with composite foreign keys](decision/0008-use-composite-foreign-keys-for-outlet-item-pairing.md)
 
 ### Product
 

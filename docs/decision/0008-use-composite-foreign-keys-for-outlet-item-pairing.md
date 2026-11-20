@@ -18,5 +18,5 @@
 ## Consequences
 
 - Writers must supply the outlet that owns the item. The mock-data generator and CSV importer already do. Checked by seeding 2 outlets, 60 days (1080 sales, 1080 prep logs, 813 waste entries): migration up, down and up again all pass with zero violating rows. `kitchen-mcp` is still a placeholder, so `log_waste` and `update_entry` (ZALS-13) must resolve the item within the caller's outlet; a mismatch now surfaces as a Postgres foreign-key error to translate into a tool error.
-- Deleting or re-homing a menu item to another outlet is blocked while rows reference it (no cascade, as before).
+- Deleting or re-homing a menu item to another outlet is blocked while rows reference it (no cascade, as before). The CSV importer rejects such a move up front with a file and line error, so it never reaches the database as a raw foreign-key failure.
 - `test/composite-fk.test.ts` covers each affected table, rollback and the violation message. It needs `TEST_DATABASE_URL`, like `schema.test.ts`.

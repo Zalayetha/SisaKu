@@ -83,6 +83,28 @@ async function checkReferences(
               });
           });
   }
+  // Re-homing an existing item is rejected (ADR 0008): rows that reference it keep the old outlet.
+  const menuRows = parsed.find(([n]) => n === "menu_items")?.[1] ?? [];
+  const current = new Map<string, string>();
+  for (const chunk of chunks(
+    menuRows.map((r) => r["id"] as string),
+    1000,
+  ))
+    for (const row of await db
+      .select({ id: menuItems.id, outletId: menuItems.outletId })
+      .from(menuItems)
+      .where(inArray(menuItems.id, chunk)))
+      current.set(row.id, row.outletId);
+  menuRows.forEach((r, i) => {
+    const owner = current.get(r["id"] as string);
+    if (owner !== undefined && owner !== r["outlet_id"])
+      errors.push({
+        file: "menu_items",
+        line: lineOf["menu_items"]![i]!,
+        column: "outlet_id",
+        message: `outlet_id: item ${r["id"]} already belongs to outlet ${owner} and cannot move to outlet ${r["outlet_id"]}`,
+      });
+  });
   // An item must belong to the same outlet as the sales / prep row that uses it.
   for (const name of ["sales", "prep_logs"] as const)
     parsed
