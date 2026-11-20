@@ -1,18 +1,17 @@
-import { DEFAULT_DAYS, DEFAULT_SEED, DEFAULT_START, generateMockData } from "./generate.js";
+import { generateMockData } from "./generate.js";
 import { loadDataset } from "./load.js";
+import { parseCliOptions } from "./options.js";
 
 // Usage: pnpm --filter @sisaku/mock-data seed [--seed N] [--start YYYY-MM-DD] [--days N] [--reset] [--dry-run]
-const args = process.argv.slice(2);
-const opt = (name: string) => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 ? args[i + 1] : undefined;
-};
+let opts;
+try {
+  opts = parseCliOptions(process.argv.slice(2));
+} catch (err) {
+  console.error(`Error: ${(err as Error).message}`);
+  process.exit(1);
+}
 
-const data = generateMockData({
-  seed: Number(opt("seed") ?? DEFAULT_SEED),
-  startDate: opt("start") ?? DEFAULT_START,
-  days: Number(opt("days") ?? DEFAULT_DAYS),
-});
+const data = generateMockData({ seed: opts.seed, startDate: opts.start, days: opts.days });
 
 console.log(
   `SIMULATED data (seed ${data.seed}, ${data.startDate}..${data.endDate}): ` +
@@ -20,6 +19,6 @@ console.log(
     `${data.prepLogs.length} prep logs, ${data.wasteEntries.length} waste entries, ${data.spikes.length} hidden spikes`,
 );
 
-if (args.includes("--dry-run")) process.exit(0);
-await loadDataset(data, { reset: args.includes("--reset") });
+if (opts.dryRun) process.exit(0);
+await loadDataset(data, { reset: opts.reset });
 console.log("Loaded into Postgres.");

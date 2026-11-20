@@ -55,3 +55,13 @@ describe("generateMockData", () => {
       expect(total(whole.outletId, whole.date)).toBeGreaterThan(total(whole.outletId, prev) * 1.3);
   });
 });
+
+describe("calendar", () => {
+  it("includes Imlek 2026 inside the default window, so no spike can land on it", () => {
+    expect(calendarBetween("2026-02-17", "2026-02-17").map((e) => e.name)).toContain("Imlek 2026");
+    for (let seed = 1; seed <= 10; seed++) {
+      const d = generateMockData({ seed });
+      expect(d.spikes.some((s) => s.date === "2026-02-17")).toBe(false);
+    }
+  });
+});
