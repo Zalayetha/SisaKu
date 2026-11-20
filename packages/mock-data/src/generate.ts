@@ -1,5 +1,5 @@
 import type { InferInsertModel } from "drizzle-orm";
-import type { menuItems, outlets, prepLogs, sales, users, wasteEntries } from "@sisaku/db/schema";
+import type { menuItems, outlets, prepLogs, sales, users, wasteEntries } from "@sisaku/db";
 import { addDays, eventsOn, weekday } from "./calendar.js";
 import { createRng, type Rng } from "./rng.js";
 
