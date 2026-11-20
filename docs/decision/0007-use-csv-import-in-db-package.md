@@ -20,5 +20,6 @@ Outlets need to load sales, prep logs and menu data from files, from CSV files i
 
 - Changing a table's columns means updating `csvTables` in `format.ts` in the same PR, or the importer and any CSV producer drift apart.
 - Upsert means an import can overwrite existing rows with the same key. It never deletes rows missing from the file.
-- Foreign keys are checked before writing, against the parsed parent files plus one database lookup, so an unknown `outlet_id` or `item_id` is reported with file and line and nothing is written.
+- Foreign keys are checked before writing, against the parsed parent files plus one database lookup, so an unknown `outlet_id` or `item_id` is reported with file and line and nothing is written. A `sales` or `prep_logs` row whose `item_id` belongs to a different outlet than its `outlet_id` is rejected the same way (the item's outlet comes from the parsed `menu_items` rows first, then the database).
 - A Hono upload endpoint can be added later on top of `importCsv` without changing the format.
+- The outlet check covers rows in the import only. If `menu_items.csv` moves an existing item to another outlet, `sales` / `prep_logs` rows already in the database keep the old `outlet_id`. A composite `(id, outlet_id)` foreign key in a later migration should decide whether to reject or cascade such a move.
