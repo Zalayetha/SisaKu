@@ -4,25 +4,58 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
-// up: apply pending Drizzle migrations. down: revert the initial schema (drizzle/down/*.down.sql).
+// up:    apply pending Drizzle migrations.
+// down:  revert the latest applied migration (drizzle/down/<tag>.down.sql).
+// reset: revert every applied migration and drop the drizzle schema (empty database).
 const dir = new URL("../drizzle/", import.meta.url);
 const direction = process.argv[2] ?? "up";
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is not set");
-// `down` drops every table, so refuse to run unless the database name ends in `_test`
+const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", dir), "utf8")) as {
+  entries: { tag: string }[];
+};
+const pool = new pg.Pool({ connectionString });
+const applied = async (): Promise<number> => {
+  const r = await pool.query("select to_regclass('drizzle.__drizzle_migrations') as t");
+  if (!r.rows[0].t) return 0;
+  return Number(
+    (await pool.query("select count(*) from drizzle.__drizzle_migrations")).rows[0].count,
+  );
+};
+// Reverting 0000 drops every table, so refuse unless the database name ends in `_test`
 // (or the caller explicitly opts in with ALLOW_DESTRUCTIVE_DB=1).
-if (direction === "down" && process.env.ALLOW_DESTRUCTIVE_DB !== "1") {
+const guardDestructive = () => {
+  if (process.env.ALLOW_DESTRUCTIVE_DB === "1") return;
   const name = new URL(connectionString).pathname.slice(1);
   if (!name.endsWith("_test")) {
-    throw new Error(`refusing destructive "down" on database "${name}": name must end in _test`);
+    throw new Error(
+      `refusing destructive "${direction}" on database "${name}": name must end in _test`,
+    );
   }
-}
-const pool = new pg.Pool({ connectionString });
+};
+const revert = async (idx: number) => {
+  const tag = journal.entries[idx]?.tag;
+  if (!tag) throw new Error(`no migration at index ${idx}`);
+  await pool.query(readFileSync(new URL(`down/${tag}.down.sql`, dir), "utf8"));
+  // Keep drizzle's bookkeeping in step so `up` re-applies this migration.
+  if (idx > 0) {
+    await pool.query(
+      "delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations)",
+    );
+  }
+};
 try {
   if (direction === "up") {
     await migrate(drizzle(pool), { migrationsFolder: fileURLToPath(dir) });
   } else if (direction === "down") {
-    await pool.query(readFileSync(new URL("down/0000_init.down.sql", dir), "utf8"));
+    const n = await applied();
+    if (n === 0) throw new Error("nothing to revert");
+    if (n === 1) guardDestructive();
+    await revert(n - 1);
+    if (n === 1) await pool.query('DROP SCHEMA IF EXISTS "drizzle" CASCADE');
+  } else if (direction === "reset") {
+    guardDestructive();
+    for (let n = await applied(); n > 0; n--) await revert(n - 1);
     await pool.query('DROP SCHEMA IF EXISTS "drizzle" CASCADE');
   } else throw new Error(`unknown direction ${direction}`);
   console.log(`migrate ${direction}: ok`);

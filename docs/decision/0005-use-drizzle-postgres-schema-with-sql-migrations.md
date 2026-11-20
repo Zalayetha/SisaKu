@@ -14,7 +14,7 @@ SisaKu stores relational data in PostgreSQL (11 tables from `technical-design.md
 - **Units and enums:** waste is stored in kg (`waste_entries.weight_kg`). `users.role` is the enum `staff | manager | owner`. Status columns for recommendations, pickups and agent runs are enums too.
 - **Baseline:** the forecast baseline lives only on `forecasts`. `recommendations` read it through `forecast_id`.
 - **Pickup requests:** `status` includes `draft` and `submitted` besides pending/approved/rejected, so nothing is submitted without approval. `foodbank_id` is text because the food bank list is mock data in `impact-mcp`.
-- **Reversibility:** `drizzle-kit generate` makes the up migration. Down migrations are written by hand in `drizzle/down/`. `pnpm db:rollback` currently runs only `down/0000_init.down.sql` and drops the `drizzle` schema, so it is a full reset to an empty database, not a one-step revert. It refuses any database whose name does not end in `_test` (unless `ALLOW_DESTRUCTIVE_DB=1`). Per-migration rollback is follow-up work once `0001` exists.
+- **Reversibility:** `drizzle-kit generate` makes the up migration. Down migrations are written by hand in `drizzle/down/`. `pnpm db:rollback` reverts the latest migration only (since 0001; see 0008). `pnpm db:reset` reverts all of them to an empty database. Both refuse a database whose name does not end in `_test` when that would drop every table (unless `ALLOW_DESTRUCTIVE_DB=1`).
 - **Scripts:** `db:generate`, `db:migrate`, `db:rollback`, `db:push`, `db:studio`.
 
 ## Consequences

@@ -46,7 +46,7 @@ it.skipIf(!url)("migrations apply, create 11 tables, and roll back", async () =>
           ]),
         ),
     ).rejects.toThrow();
-    run("down");
+    run("reset");
     expect(await tables(pool)).toEqual([]);
     run("up");
   } finally {

@@ -1,0 +1,13 @@
+ALTER TABLE "forecasts" DROP CONSTRAINT "forecasts_item_outlet_fk";
+ALTER TABLE "prep_logs" DROP CONSTRAINT "prep_logs_item_outlet_fk";
+ALTER TABLE "sales" DROP CONSTRAINT "sales_item_outlet_fk";
+ALTER TABLE "waste_entries" DROP CONSTRAINT "waste_entries_item_outlet_fk";
+ALTER TABLE "menu_items" DROP CONSTRAINT "menu_items_id_outlet_id_unique";
+ALTER TABLE "forecasts" ADD CONSTRAINT "forecasts_outlet_id_outlets_id_fk" FOREIGN KEY ("outlet_id") REFERENCES "public"."outlets"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "forecasts" ADD CONSTRAINT "forecasts_item_id_menu_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."menu_items"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "prep_logs" ADD CONSTRAINT "prep_logs_outlet_id_outlets_id_fk" FOREIGN KEY ("outlet_id") REFERENCES "public"."outlets"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "prep_logs" ADD CONSTRAINT "prep_logs_item_id_menu_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."menu_items"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "sales" ADD CONSTRAINT "sales_outlet_id_outlets_id_fk" FOREIGN KEY ("outlet_id") REFERENCES "public"."outlets"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "sales" ADD CONSTRAINT "sales_item_id_menu_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."menu_items"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "waste_entries" ADD CONSTRAINT "waste_entries_outlet_id_outlets_id_fk" FOREIGN KEY ("outlet_id") REFERENCES "public"."outlets"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "waste_entries" ADD CONSTRAINT "waste_entries_item_id_menu_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."menu_items"("id") ON DELETE no action ON UPDATE no action;
