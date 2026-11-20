@@ -117,6 +117,19 @@ it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothin
     });
     expect(orphan.ok).toBe(false);
     expect(orphan.errors[0]).toMatchObject({ file: "sales", line: 2, column: "item_id" });
+    // Item exists (in the DB) but belongs to a different outlet than the row's outlet_id.
+    const O2 = "00000000-0000-4000-8000-0000000000b2";
+    const mismatch = await importCsv(db, {
+      outlets: serializeCsv("outlets", [{ ...sample.outlets[0]!, id: O2, name: "Other" }]),
+      sales: serializeCsv("sales", [{ ...sample.sales[0]!, outlet_id: O2, date: "2026-11-03" }]),
+      prep_logs: serializeCsv("prep_logs", [{ ...sample.prep_logs[0]!, outlet_id: O2 }]),
+    });
+    expect(mismatch.ok).toBe(false);
+    expect(mismatch.errors.map((e) => `${e.file}:${e.line}:${e.column}`)).toEqual([
+      "prep_logs:2:item_id",
+      "sales:2:item_id",
+    ]);
+    expect(mismatch.errors[0]!.message).toMatch(/belongs to outlet/);
   } finally {
     await pool.query("truncate prep_logs, sales, menu_items, outlets cascade");
     await pool.end();

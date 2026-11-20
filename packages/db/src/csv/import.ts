@@ -39,6 +39,11 @@ async function checkReferences(
   const known: Partial<Record<CsvTableName, Set<string>>> = {};
   for (const [name, rows] of parsed) known[name] = new Set(rows.map((r) => r["id"] as string));
   const errors: ImportResult["errors"] = [];
+  // item id -> owning outlet; rows in this import win over the database (they are upserted).
+  const itemOutlet = new Map<string, string>();
+  for (const [name, rows] of parsed)
+    if (name === "menu_items")
+      for (const r of rows) itemOutlet.set(r["id"] as string, r["outlet_id"] as string);
   for (const parent of ["outlets", "menu_items"] as const) {
     const wanted = new Set<string>();
     for (const [name, rows] of parsed)
@@ -49,10 +54,21 @@ async function checkReferences(
             if (!known[parent]?.has(v)) wanted.add(v);
           }
     const found = new Set<string>();
-    const t = tables[parent];
-    for (const chunk of chunks([...wanted], 1000))
-      for (const row of await db.select({ id: t.id }).from(t).where(inArray(t.id, chunk)))
-        found.add(row.id);
+    if (parent === "menu_items") {
+      for (const chunk of chunks([...wanted], 1000))
+        for (const row of await db
+          .select({ id: menuItems.id, outletId: menuItems.outletId })
+          .from(menuItems)
+          .where(inArray(menuItems.id, chunk))) {
+          found.add(row.id);
+          itemOutlet.set(row.id, row.outletId);
+        }
+    } else {
+      const t = outlets;
+      for (const chunk of chunks([...wanted], 1000))
+        for (const row of await db.select({ id: t.id }).from(t).where(inArray(t.id, chunk)))
+          found.add(row.id);
+    }
     for (const [name, rows] of parsed)
       for (const ref of REFS[name] ?? [])
         if (ref.parent === parent)
@@ -67,6 +83,20 @@ async function checkReferences(
               });
           });
   }
+  // An item must belong to the same outlet as the sales / prep row that uses it.
+  for (const name of ["sales", "prep_logs"] as const)
+    parsed
+      .find(([n]) => n === name)?.[1]
+      .forEach((r, i) => {
+        const owner = itemOutlet.get(r["item_id"] as string);
+        if (owner !== undefined && owner !== r["outlet_id"])
+          errors.push({
+            file: name,
+            line: lineOf[name]![i]!,
+            column: "item_id",
+            message: `item_id: item ${r["item_id"]} belongs to outlet ${owner}, not outlet ${r["outlet_id"]}`,
+          });
+      });
   return errors.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
