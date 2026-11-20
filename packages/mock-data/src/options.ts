@@ -50,7 +50,8 @@ export function parseCliOptions(args: string[]): CliOptions {
     throw new Error(`--days must be at least ${HELD_OUT_DAYS} (the held-out window), got ${days}`);
   }
   const start = values.get("start") ?? DEFAULT_START;
-  if (!isValidDate(start)) throw new Error(`--start must be a valid YYYY-MM-DD date, got "${start}"`);
+  if (!isValidDate(start))
+    throw new Error(`--start must be a valid YYYY-MM-DD date, got "${start}"`);
 
   return { seed, start, days, reset: flags.has("reset"), dryRun: flags.has("dry-run") };
 }
