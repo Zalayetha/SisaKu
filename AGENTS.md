@@ -83,6 +83,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0002: Use Oxlint, Oxfmt, and Husky](decision/0002-use-oxlint-oxfmt-and-husky.md)
 - [0003: Use root Playwright tests](decision/0003-use-root-playwright-tests.md)
 - [0004: Use tsup as the bundler and Bundler module resolution](decision/0004-use-tsup-bundler-with-bundler-resolution.md)
+- [0005: Use Drizzle for the Postgres schema, with hand-written down migrations](decision/0005-use-drizzle-postgres-schema-with-sql-migrations.md)
 
 ### Product
 

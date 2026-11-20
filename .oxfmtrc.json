@@ -13,6 +13,7 @@
     ".multica",
     ".claude",
     "CLAUDE.md",
+    "packages/db/drizzle/meta",
     "prd.md",
     "technical-design.md",
     ".github/workflows/pullfrog.yml"
