@@ -130,6 +130,12 @@ it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothin
       "sales:2:item_id",
     ]);
     expect(mismatch.errors[0]!.message).toMatch(/belongs to outlet/);
+    // Moving an existing item to another outlet is rejected with a structured error, not a raw FK error.
+    const rehome = await importCsv(db, {
+      menu_items: serializeCsv("menu_items", [{ ...sample.menu_items[0]!, outlet_id: O2 }]),
+    });
+    expect(rehome.ok).toBe(false);
+    expect(rehome.errors[0]).toMatchObject({ file: "menu_items", line: 2, column: "outlet_id" });
   } finally {
     await pool.query("truncate prep_logs, sales, menu_items, outlets cascade");
     await pool.end();

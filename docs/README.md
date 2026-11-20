@@ -11,7 +11,8 @@ docs/
 │   ├── 0004-use-tsup-bundler-with-bundler-resolution.md
 │   ├── 0005-use-drizzle-postgres-schema-with-sql-migrations.md
 │   ├── 0006-use-seeded-mock-data-generator.md
-│   └── 0007-use-csv-import-in-db-package.md
+│   ├── 0007-use-csv-import-in-db-package.md
+│   └── 0008-use-composite-foreign-keys-for-outlet-item-pairing.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

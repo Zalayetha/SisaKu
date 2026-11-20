@@ -6,7 +6,9 @@ import {
   jsonb,
   numeric,
   pgEnum,
+  foreignKey,
   pgTable,
+  unique,
   primaryKey,
   text,
   timestamp,
@@ -61,37 +63,46 @@ export const menuItems = pgTable(
     portionWeightKg: numeric("portion_weight_kg", { precision: 8, scale: 3 }).notNull(),
     foodCategory: text("food_category").notNull(), // joins emission_factors.food_category
   },
-  (t) => [index("menu_items_outlet_idx").on(t.outletId)],
+  (t) => [
+    index("menu_items_outlet_idx").on(t.outletId),
+    unique("menu_items_id_outlet_id_unique").on(t.id, t.outletId),
+  ],
 );
 
 export const sales = pgTable(
   "sales",
   {
-    outletId: uuid("outlet_id")
-      .notNull()
-      .references(() => outlets.id),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => menuItems.id),
+    outletId: uuid("outlet_id").notNull(),
+    itemId: uuid("item_id").notNull(),
     date: date("date").notNull(),
     qtySold: integer("qty_sold").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.outletId, t.itemId, t.date] })],
+  (t) => [
+    foreignKey({
+      columns: [t.itemId, t.outletId],
+      foreignColumns: [menuItems.id, menuItems.outletId],
+      name: "sales_item_outlet_fk",
+    }),
+    primaryKey({ columns: [t.outletId, t.itemId, t.date] }),
+  ],
 );
 
 export const prepLogs = pgTable(
   "prep_logs",
   {
-    outletId: uuid("outlet_id")
-      .notNull()
-      .references(() => outlets.id),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => menuItems.id),
+    outletId: uuid("outlet_id").notNull(),
+    itemId: uuid("item_id").notNull(),
     date: date("date").notNull(),
     qtyPrepped: integer("qty_prepped").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.outletId, t.itemId, t.date] })],
+  (t) => [
+    foreignKey({
+      columns: [t.itemId, t.outletId],
+      foreignColumns: [menuItems.id, menuItems.outletId],
+      name: "prep_logs_item_outlet_fk",
+    }),
+    primaryKey({ columns: [t.outletId, t.itemId, t.date] }),
+  ],
 );
 
 export const agentRuns = pgTable("agent_runs", {
@@ -108,12 +119,8 @@ export const wasteEntries = pgTable(
   "waste_entries",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    outletId: uuid("outlet_id")
-      .notNull()
-      .references(() => outlets.id),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => menuItems.id),
+    outletId: uuid("outlet_id").notNull(),
+    itemId: uuid("item_id").notNull(),
     loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
     weightKg: numeric("weight_kg", { precision: 8, scale: 3 }).notNull(), // always kg
     portionCount: integer("portion_count"),
@@ -123,7 +130,14 @@ export const wasteEntries = pgTable(
     confidence: doublePrecision("confidence"),
     confirmedBy: uuid("confirmed_by").references(() => users.id),
   },
-  (t) => [index("waste_entries_outlet_logged_idx").on(t.outletId, t.loggedAt)],
+  (t) => [
+    foreignKey({
+      columns: [t.itemId, t.outletId],
+      foreignColumns: [menuItems.id, menuItems.outletId],
+      name: "waste_entries_item_outlet_fk",
+    }),
+    index("waste_entries_outlet_logged_idx").on(t.outletId, t.loggedAt),
+  ],
 );
 
 export const forecasts = pgTable(
@@ -133,19 +147,22 @@ export const forecasts = pgTable(
     runId: uuid("run_id")
       .notNull()
       .references(() => agentRuns.id),
-    outletId: uuid("outlet_id")
-      .notNull()
-      .references(() => outlets.id),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => menuItems.id),
+    outletId: uuid("outlet_id").notNull(),
+    itemId: uuid("item_id").notNull(),
     date: date("date").notNull(),
     baselineQty: doublePrecision("baseline_qty").notNull(),
     adjustedQty: doublePrecision("adjusted_qty"),
     reason: text("reason"), // required when adjustedQty differs from baseline
     model: text("model").notNull(),
   },
-  (t) => [index("forecasts_outlet_date_idx").on(t.outletId, t.date)],
+  (t) => [
+    foreignKey({
+      columns: [t.itemId, t.outletId],
+      foreignColumns: [menuItems.id, menuItems.outletId],
+      name: "forecasts_item_outlet_fk",
+    }),
+    index("forecasts_outlet_date_idx").on(t.outletId, t.date),
+  ],
 );
 
 // Baseline lives on forecasts only; join via forecast_id.
