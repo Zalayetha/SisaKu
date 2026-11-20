@@ -38,8 +38,22 @@ export const csvTables = {
       { name: "outlet_id", key: "outletId", kind: "uuid" },
       { name: "name", key: "name", kind: "text" },
       { name: "category", key: "category", kind: "text" },
-      { name: "cost_per_portion", key: "costPerPortion", kind: "numeric", precision: 12, scale: 2, min: 0 },
-      { name: "portion_weight_kg", key: "portionWeightKg", kind: "numeric", precision: 8, scale: 3, min: 0 },
+      {
+        name: "cost_per_portion",
+        key: "costPerPortion",
+        kind: "numeric",
+        precision: 12,
+        scale: 2,
+        min: 0,
+      },
+      {
+        name: "portion_weight_kg",
+        key: "portionWeightKg",
+        kind: "numeric",
+        precision: 8,
+        scale: 3,
+        min: 0,
+      },
       { name: "food_category", key: "foodCategory", kind: "text" },
     ],
   },
@@ -175,7 +189,10 @@ function parseCell(
         return { error: `"${raw}" has more than ${col.scale} decimal places` };
       if (col.precision !== undefined) {
         const maxInt = col.precision - (col.scale ?? 0);
-        const intDigits = raw.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\d)/, "").length;
+        const intDigits = raw
+          .replace(/^-/, "")
+          .split(".")[0]!
+          .replace(/^0+(?=\d)/, "").length;
         if (intDigits > maxInt)
           return { error: `"${raw}" has more than ${maxInt} digits before the decimal point` };
       }
