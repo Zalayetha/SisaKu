@@ -72,8 +72,13 @@ function checkLoggedAt(loggedAt: string) {
   return at;
 }
 
-function portionsToKg(portions: number, portionWeightKg: number) {
-  const kg = round(portions * portionWeightKg, 3);
+function portionsToKg(portions: number, item: { id: string; portionWeightKg: number }) {
+  // The schema allows a 0 portion weight (e.g. from a CSV typo); portions cannot be converted then.
+  if (item.portionWeightKg <= 0)
+    throw new KitchenError(
+      `Item ${item.id} has no portion weight, so portions cannot be converted to kg; log weight_kg instead`,
+    );
+  const kg = round(portions * item.portionWeightKg, 3);
   if (kg > MAX_WEIGHT_KG)
     throw new KitchenError(`${portions} portions is ${kg} kg, above the ${MAX_WEIGHT_KG} kg limit`);
   return kg;
@@ -183,7 +188,7 @@ export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entry: W
   const loggedAt = input.logged_at ? checkLoggedAt(input.logged_at) : new Date();
   const weightKg =
     input.portion_count !== undefined
-      ? portionsToKg(input.portion_count, item.portionWeightKg)
+      ? portionsToKg(input.portion_count, item)
       : round(input.weight_kg!, 3);
   const [row] = await db
     .insert(wasteEntries)
@@ -218,7 +223,9 @@ export async function queryWaste(db: Db, input: QueryWasteInput): Promise<QueryW
   if (filters.item_id) where.push(eq(wasteEntries.itemId, filters.item_id));
   if (filters.cause) where.push(eq(wasteEntries.cause, filters.cause));
 
-  const portions = sql`${wasteEntries.weightKg} / ${menuItems.portionWeightKg}`;
+  // nullif: an item with a 0 portion weight still counts toward waste_kg, but is left out of
+  // the estimated portions and cost instead of failing the whole query with division by zero.
+  const portions = sql`${wasteEntries.weightKg} / nullif(${menuItems.portionWeightKg}, 0)`;
   const totals = {
     waste_kg: sql<string>`round(sum(${wasteEntries.weightKg}), 3)`,
     entries: sql<number>`count(*)::int`,
@@ -291,7 +298,7 @@ export async function updateEntry(
     const portions = patch.portion_count ?? before.portion_count;
     if (portions !== null && (patch.portion_count !== undefined || patch.item_id !== undefined)) {
       set.portionCount = portions;
-      set.weightKg = String(portionsToKg(portions, item.portionWeightKg));
+      set.weightKg = String(portionsToKg(portions, item));
     }
   }
   await db

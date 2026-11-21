@@ -1,3 +1,4 @@
+import { menuItems, wasteEntries } from "@sisaku/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   getMenu,
@@ -339,6 +340,67 @@ describe.skipIf(!testDbUrl)("kitchen tools", () => {
           patch: { logged_at: new Date(Date.now() + 3_600_000).toISOString() },
         }),
         /in the future/,
+      );
+    });
+  });
+
+  // portion_weight_kg has no CHECK constraint and the CSV importer accepts 0 (PR #11 review).
+  describe("an item with a 0 portion weight", () => {
+    const kerupuk = "00000000-0000-4000-8000-000000000103";
+
+    beforeAll(async () => {
+      await db.insert(menuItems).values({
+        id: kerupuk,
+        outletId: A,
+        name: "Kerupuk",
+        category: "side",
+        costPerPortion: "1000",
+        portionWeightKg: "0.000",
+        foodCategory: "other",
+      });
+      await db.insert(wasteEntries).values({
+        outletId: A,
+        itemId: kerupuk,
+        loggedAt: new Date("2026-04-01T05:00:00Z"),
+        weightKg: "0.500",
+        cause: "expired",
+        source: "text",
+      });
+      await db.insert(wasteEntries).values({
+        outletId: A,
+        itemId: ids.nasi,
+        loggedAt: new Date("2026-04-01T06:00:00Z"),
+        weightKg: "0.400",
+        cause: "spoilage",
+        source: "text",
+      });
+    });
+
+    it("does not break query_waste; it counts toward kg but not portions or cost", async () => {
+      const filters = { outlet_id: A, from: "2026-04-01", to: "2026-04-01" };
+      const all = await queryWaste(db, { filters, group_by: "none" });
+      expect(all.groups).toEqual([{ waste_kg: 0.9, entries: 2, portions: 2, cost_idr: 5000 }]);
+      const byItem = await queryWaste(db, { filters, group_by: "item" });
+      expect(byItem.groups.find((g) => g.item_name === "Kerupuk")).toMatchObject({
+        waste_kg: 0.5,
+        portions: 0,
+        cost_idr: 0,
+      });
+    });
+
+    it("rejects portions for it in log_waste and update_entry, but accepts a typed weight", async () => {
+      const base = { outlet_id: A, cause: "expired", source: "text" } as const;
+      await rejects(
+        logWaste(db, { ...base, item_id: kerupuk, portion_count: 3 }),
+        /has no portion weight.*log weight_kg instead/,
+      );
+      const { entry } = await logWaste(db, { ...base, item_id: kerupuk, weight_kg: 0.2 });
+      expect(entry).toMatchObject({ weight_kg: 0.2, portion_count: null });
+
+      const counted = (await logWaste(db, { ...base, item_id: ids.nasi, portion_count: 2 })).entry;
+      await rejects(
+        updateEntry(db, { outlet_id: A, id: counted.id, patch: { item_id: kerupuk } }),
+        /has no portion weight/,
       );
     });
   });

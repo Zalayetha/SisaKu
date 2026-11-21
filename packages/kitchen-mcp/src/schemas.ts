@@ -166,8 +166,16 @@ export const queryWasteOutput = z.object({
       date: z.string().optional(),
       waste_kg: z.number(),
       entries: z.number(),
-      portions: z.number().describe("Estimated: waste_kg / portion weight"),
-      cost_idr: z.number().describe("Estimated Rupiah: portions x cost per portion"),
+      portions: z
+        .number()
+        .describe(
+          "Estimated: waste_kg / portion weight (items without a portion weight count as 0)",
+        ),
+      cost_idr: z
+        .number()
+        .describe(
+          "Estimated Rupiah: portions x cost per portion (0 for items without a portion weight)",
+        ),
     }),
   ),
 });
