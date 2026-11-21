@@ -1,4 +1,5 @@
 import { menuItems, wasteEntries } from "@sisaku/db";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   getMenu,
@@ -345,10 +346,22 @@ describe.skipIf(!testDbUrl)("kitchen tools", () => {
   });
 
   // portion_weight_kg has no CHECK constraint and the CSV importer accepts 0 (PR #11 review).
-  describe("an item with a 0 portion weight", () => {
+  // Migration 0002 forbids a 0 portion weight; kitchen-mcp still guards against it for a database
+  // that has not been migrated yet. Drop the check to simulate one, and restore it afterwards.
+  describe("an item with a 0 portion weight (database without the check)", () => {
     const kerupuk = "00000000-0000-4000-8000-000000000103";
+    const check = sql.raw("menu_items_portion_weight_kg_positive");
+
+    afterAll(async () => {
+      await db.delete(wasteEntries).where(sql`${wasteEntries.itemId} = ${kerupuk}`);
+      await db.delete(menuItems).where(sql`${menuItems.id} = ${kerupuk}`);
+      await db.execute(
+        sql`alter table menu_items add constraint ${check} check (portion_weight_kg > 0)`,
+      );
+    });
 
     beforeAll(async () => {
+      await db.execute(sql`alter table menu_items drop constraint ${check}`);
       await db.insert(menuItems).values({
         id: kerupuk,
         outletId: A,

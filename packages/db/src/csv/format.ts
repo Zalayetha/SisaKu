@@ -21,6 +21,8 @@ export interface Column {
   precision?: number;
   /** int/numeric: minimum allowed value */
   min?: number;
+  /** numeric: the minimum itself is not allowed (value must be greater than min) */
+  minExclusive?: boolean;
 }
 
 export const csvTables = {
@@ -53,6 +55,7 @@ export const csvTables = {
         precision: 8,
         scale: 3,
         min: 0,
+        minExclusive: true, // a 0 kg portion cannot convert portions to kg
       },
       { name: "food_category", key: "foodCategory", kind: "text" },
     ],
@@ -196,6 +199,8 @@ function parseCell(
         if (intDigits > maxInt)
           return { error: `"${raw}" has more than ${maxInt} digits before the decimal point` };
       }
+      if (col.min !== undefined && col.minExclusive && Number(raw) <= col.min)
+        return { error: `${raw} must be greater than ${col.min}` };
       return col.min !== undefined && Number(raw) < col.min
         ? { error: `${raw} is below the minimum ${col.min}` }
         : { value: raw };

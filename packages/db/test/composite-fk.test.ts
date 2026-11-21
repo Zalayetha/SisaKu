@@ -59,8 +59,14 @@ describe.skipIf(!url)("outlet/item pairing", () => {
     });
   }
 
-  it("down reverts only 0001; up re-applies", async () => {
-    run("down");
+  // Later migrations sit on top of 0001; revert them too so 0001 is the latest one reverted.
+  const revert0001 = () => {
+    run("down"); // 0002
+    run("down"); // 0001
+  };
+
+  it("reverting 0001 restores the old FKs; up re-applies", async () => {
+    revert0001();
     // the old, weaker guarantee: another outlet's item is accepted
     await expect(insert("sales", outletB, itemA)).resolves.toBeTruthy();
     await pool.query("delete from sales where outlet_id=$1", [outletB]);
@@ -69,7 +75,7 @@ describe.skipIf(!url)("outlet/item pairing", () => {
   });
 
   it("up fails with a clear message when existing rows violate the pairing", async () => {
-    run("down");
+    revert0001();
     await insert("sales", outletB, itemA);
     let msg = "";
     try {

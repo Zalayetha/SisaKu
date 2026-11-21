@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
   date,
   doublePrecision,
   index,
@@ -79,6 +81,7 @@ export const menuItems = pgTable(
   (t) => [
     index("menu_items_outlet_idx").on(t.outletId),
     unique("menu_items_id_outlet_id_unique").on(t.id, t.outletId),
+    check("menu_items_portion_weight_kg_positive", sql`${t.portionWeightKg} > 0`),
   ],
 );
 
