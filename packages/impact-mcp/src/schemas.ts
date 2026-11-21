@@ -1,4 +1,4 @@
-import { WASTE_CAUSES } from "@sisaku/db";
+import { pickupStatus, WASTE_CAUSES } from "@sisaku/db";
 import * as z from "zod";
 
 // Input and output schemas for every impact-mcp tool. The SDK validates inputs against these
@@ -114,7 +114,7 @@ export const pickupOutput = z.object({
   outlet_id: uuid,
   foodbank_id: z.string(),
   items: z.array(pickupItem),
-  status: z.enum(["draft", "pending", "approved", "rejected", "submitted"]),
+  status: z.enum(pickupStatus.enumValues),
   created_at: z.string().describe("ISO 8601, UTC"),
   approved_by: z.string().nullable(),
 });
