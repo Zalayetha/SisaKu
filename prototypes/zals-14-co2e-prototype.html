@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CO₂e Factor Prototype</title>
+<style>
+  :root {
+    --bg: #fafaf8; --panel: #ffffff; --ink: #1c1c1a; --muted: #6b6b66; --line: #e4e4de;
+    --accent: #0f766e; --accent-soft: #e6f4f2; --warn: #b45309; --warn-soft: #fef3e2;
+    --prod: #0f766e; --land: #c2410c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #a0a09a; --line: #34342f;
+      --accent: #5eead4; --accent-soft: #123b37; --warn: #fbbf24; --warn-soft: #3a2a0c;
+      --prod: #2dd4bf; --land: #fb923c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  h3 { font-size: 15px; margin: 18px 0 6px; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); }
+  .ok { background: var(--accent-soft); color: var(--accent); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin: 18px 0; }
+  .intro { background: transparent; border: none; padding: 0; }
+  .question { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; margin: 14px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  select, input[type=number], input[type=text] { font: inherit; font-size: 14px; padding: 4px 6px; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--ink); max-width: 100%; }
+  input[type=number] { width: 80px; }
+  button { font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  button:disabled { opacity: .4; cursor: default; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  .chain { list-style: none; padding: 0; margin: 10px 0 0; counter-reset: s; }
+  .chain li { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; padding: 9px 0; border-bottom: 1px dashed var(--line); }
+  .chain li:last-child { border-bottom: none; }
+  .chain .op { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--muted); }
+  .chain .val { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; white-space: nowrap; }
+  .chain .why { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+  .big { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .changed { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 14px; }
+  .bar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; min-width: 120px; background: var(--line); }
+  .bar span { display: block; height: 100%; }
+  .bp { background: var(--prod); } .bl { background: var(--land); }
+  .legend { display: inline-flex; gap: 14px; font-size: 13px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+  .tabs button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .steps { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .steps .step { display: flex; gap: 10px; align-items: baseline; }
+  .steps .step.done button { opacity: .55; }
+  .steps .stepnote { font-size: 13px; color: var(--muted); }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12.5px; overflow-x: auto; margin: 8px 0 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  a { color: var(--accent); }
+  .flag { color: var(--warn); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+
+<section class="intro">
+  <span class="tag">Throwaway prototype · ZALS-14</span>
+  <h1>CO₂e estimate per kg of food waste</h1>
+  <p class="muted">Delete this file once ZALS-14 settles Q7 and Q8. It writes nothing to the repo or the database. Everything stays in this browser tab.</p>
+  <div class="question">
+    <p><b>Q7 (landfill):</b> How much CO₂e does 1 kg of food waste produce once it rots in landfill? Which IPCC defaults should we use?</p>
+    <p><b>Q8 (production):</b> Which Our World in Data product should each of our 8 menu categories map to? Are its values right for us?</p>
+    <p class="small muted">Formula from technical-design.md: CO₂e = waste kg × (production factor + landfill factor). Change any setting below, and the factor table and the sample day update immediately.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Current answer: the <code>emission_factors</code> rows this would seed</h2>
+  <p class="small muted">This is the result being decided. It is what <code>packages/db/seed/emission_factors.csv</code> would contain with the current settings.</p>
+  <div class="scroll" id="factorTable"></div>
+  <div id="changed"></div>
+  <details style="margin-top:12px"><summary class="small">Show as CSV</summary><pre id="csv"></pre></details>
+</section>
+
+<section>
+  <h2>Guided walkthroughs</h2>
+  <p class="small muted">Each walkthrough starts from the defaults. Press the steps in order and watch the table above and the panels below.</p>
+  <div class="tabs" id="tabs"></div>
+  <div id="scenario"></div>
+</section>
+
+<div class="grid2">
+<section>
+  <h2>Q7 · Landfill factor</h2>
+  <p class="small muted">IPCC 2019 Refinement, Vol. 5, Ch. 3, Equations 3.1–3.3. The model spreads methane over years as the waste decays. We count the total it will ever emit, once, on the day it is thrown away.</p>
+  <div id="params"></div>
+  <ol class="chain" id="chain"></ol>
+</section>
+
+<section>
+  <h2>Sample day of waste</h2>
+  <p class="small muted">One outlet's leftovers, using real mock menu items and portion weights from <code>packages/mock-data/src/generate.ts</code>. Edit the portions.</p>
+  <div class="scroll" id="entries"></div>
+  <div class="row" style="margin-top:10px">
+    <button id="addUnknown">Add 1 kg of "noodles" (category without a factor)</button>
+  </div>
+  <div id="result" style="margin-top:14px"></div>
+</section>
+</div>
+
+<section>
+  <h2>Q8 · Production factors and category mapping</h2>
+  <p class="small muted">Values come from <a href="https://ourworldindata.org/grapher/ghg-per-kg-poore" target="_blank" rel="noopener">OWID: GHG emissions per kg of food product</a> (Poore &amp; Nemecek 2018). The CSV was fetched on 2026-11-21 and has one data year, 2010. They cover the supply chain from farm to retail: land use, farming, feed, processing, transport, packaging and retail. Disposal isn't included, so the landfill factor doesn't double-count it. Every value is per kg of <b>raw product</b>.</p>
+  <div class="scroll" id="mapping"></div>
+  <h3>Cooked-weight correction (optional)</h3>
+  <p class="small muted">Waste is weighed cooked, but OWID values are per kg raw. "Cooked kg per raw kg" divides the production factor. For example, 1 kg of raw rice cooks to about 2.5 kg, so 1 kg of cooked rice holds only 0.4 kg of raw rice. Leave it at 1 for no correction. Only rice has a suggested value (from the handoff). Any other number you enter is your own estimate. Meat often <i>loses</i> weight when cooked, so its value is below 1.</p>
+  <h3>All OWID products (fetched values)</h3>
+  <div class="scroll"><table id="owidAll"></table></div>
+</section>
+
+<section>
+  <h2>Source notes, verified in this session</h2>
+  <ul class="small">
+    <li><b>DOCf:</b> the handoff proposed 0.5. The 2019 Refinement, Table 3.0 (New), p. 3.12, recommends <b>0.7 for "highly decomposable wastes, e.g. food wastes"</b>. 0.5 is the default for mixed bulk waste of unknown composition.</li>
+    <li><b>MCF:</b> Table 3.1 (Updated), p. 3.13. 0.6 = uncategorised, 1.0 = managed anaerobic, 0.8 = unmanaged deep (≥5 m), 0.4 = unmanaged shallow, plus the semi-aerobic and active-aeration options.</li>
+    <li><b>F = 0.5:</b> p. 3.14, "the use of the IPCC default value … (0.5) is therefore encouraged."</li>
+    <li><b>OX:</b> Table 3.2, p. 3.14. 0 is the default. 0.1 applies only to managed sites covered with methane-oxidising material such as soil or compost.</li>
+    <li><b>Equations:</b> 3.2 gives decomposable carbon (W·DOC·DOCf·MCF). 3.3 and 3.6 multiply by F·16/12 to get methane. 3.1 subtracts recovery and oxidation, (1−OX). We assume recovery R = 0.</li>
+    <li><span class="flag">Not verified in this session:</span> <b>DOC = 0.15</b> for food waste comes from the 2006 Guidelines, Vol. 5, <i>Ch. 2</i>, Table 2.4, which is not in the Ch. 3 PDF. The issue fixes the value. <b>GWP₁₀₀ = 27.0</b> for non-fossil CH₄ (AR6 WG1 Table 7.15) comes from memory. The other options are AR6 fossil CH₄ = 29.8 and AR5 = 28. Check both before seeding.</li>
+    <li>Biogenic CO₂ from rotting food isn't counted, as in IPCC inventories. Only the methane is counted.</li>
+  </ul>
+</section>
+
+</main>
+
+<!-- ===================================================================
+     PORTABLE LOGIC MODULE: pure functions, no DOM. Lift into impact-mcp.
+     =================================================================== -->
+<script>
+const Co2e = (() => {
+  const CH4_PER_C = 16 / 12;
+
+  /** IPCC landfill chain for 1 kg of waste. Returns each step and the final kg CO2e/kg. */
+  function landfillChain({ doc, docf, mcf, f, ox, gwp }) {
+    const s = [];
+    let v = 1;
+    s.push({ key: "start", label: "1 kg of food waste", op: "", value: v, unit: "kg waste" });
+    v *= doc;  s.push({ key: "doc",  label: "Degradable carbon in it", op: `× DOC ${doc}`, value: v, unit: "kg C" });
+    v *= docf; s.push({ key: "docf", label: "Carbon that actually decomposes", op: `× DOCf ${docf}`, value: v, unit: "kg C" });
+    v *= mcf;  s.push({ key: "mcf",  label: "Decomposes without oxygen (Eq. 3.2)", op: `× MCF ${mcf}`, value: v, unit: "kg C" });
+    v *= f;    s.push({ key: "f",    label: "Carbon that leaves as methane", op: `× F ${f}`, value: v, unit: "kg C as CH₄" });
+    v *= CH4_PER_C; s.push({ key: "mw", label: "Weight of that methane (Eq. 3.3 / 3.6)", op: "× 16/12", value: v, unit: "kg CH₄" });
+    v *= (1 - ox);  s.push({ key: "ox", label: "Methane that escapes the cover (Eq. 3.1)", op: `× (1 − OX ${ox})`, value: v, unit: "kg CH₄" });
+    const ch4 = v;
+    v *= gwp;  s.push({ key: "gwp",  label: "Climate impact", op: `× GWP₁₀₀ ${gwp}`, value: v, unit: "kg CO₂e" });
+    return { steps: s, ch4KgPerKg: ch4, factor: v };
+  }
+
+  /** Production factor per kg of (cooked) waste from an OWID per-kg-raw value. */
+  function productionFactor(owidKgCo2ePerKgRaw, cookedPerRaw = 1) {
+    return owidKgCo2ePerKgRaw / cookedPerRaw;
+  }
+
+  /** Build emission_factors rows. */
+  function buildFactorRows({ categories, mapping, owid, cookedPerRaw, landfillFactor, sourceUrl }) {
+    return categories.map((cat) => {
+      const product = mapping[cat];
+      const raw = owid[product];
+      const y = cookedPerRaw[cat] ?? 1;
+      return {
+        food_category: cat,
+        owid_product: product,
+        owid_value: raw,
+        cooked_per_raw: y,
+        production_kg_co2e_per_kg: productionFactor(raw, y),
+        landfill_kg_co2e_per_kg: landfillFactor,
+        source: sourceUrl,
+      };
+    });
+  }
+
+  /** compute_co2e shape: total, per-category breakdown, uncovered categories. */
+  function computeCo2e(entries, factorRows) {
+    const byCat = new Map(factorRows.map((r) => [r.food_category, r]));
+    const agg = new Map();
+    const uncovered = new Map();
+    for (const e of entries) {
+      if (!(e.weight_kg > 0)) continue;
+      const r = byCat.get(e.food_category);
+      if (!r) { uncovered.set(e.food_category, (uncovered.get(e.food_category) ?? 0) + e.weight_kg); continue; }
+      const a = agg.get(e.food_category) ?? { food_category: e.food_category, waste_kg: 0, production: 0, landfill: 0 };
+      a.waste_kg += e.weight_kg;
+      a.production += e.weight_kg * r.production_kg_co2e_per_kg;
+      a.landfill += e.weight_kg * r.landfill_kg_co2e_per_kg;
+      agg.set(e.food_category, a);
+    }
+    const byCategory = [...agg.values()].map((a) => ({ ...a, total: a.production + a.landfill }))
+      .sort((x, y) => y.total - x.total);
+    const sum = (k) => byCategory.reduce((t, a) => t + a[k], 0);
+    return {
+      total_kg_co2e: sum("total"), production_kg_co2e: sum("production"), landfill_kg_co2e: sum("landfill"),
+      waste_kg: sum("waste_kg"), byCategory,
+      uncovered: [...uncovered].map(([food_category, waste_kg]) => ({ food_category, waste_kg })),
+    };
+  }
+
+  return { landfillChain, productionFactor, buildFactorRows, computeCo2e };
+})();
+</script>
+
+<!-- ===================================================================
+     THROWAWAY PAGE SHELL
+     =================================================================== -->
+<script>
+const OWID_URL = "https://ourworldindata.org/grapher/ghg-per-kg-poore";
+// Fetched 2026-11-21 from ghg-per-kg-poore.csv (Year 2010), kg CO2e per kg product.
+const OWID = {"Apples":0.43,"Bananas":0.86,"Barley":1.18,"Beef (beef herd)":99.48,"Beef (dairy herd)":33.3,"Beet Sugar":1.81,"Berries & Grapes":1.53,"Brassicas":0.51,"Cane Sugar":3.2,"Cassava":1.32,"Cheese":23.88,"Citrus Fruit":0.39,"Coffee":28.53,"Dark Chocolate":46.65,"Eggs":4.67,"Fish (farmed)":13.63,"Groundnuts":3.23,"Lamb & Mutton":39.72,"Maize":1.7,"Milk":3.15,"Nuts":0.43,"Oatmeal":2.48,"Onions & Leeks":0.5,"Other Fruit":1.05,"Other Pulses":1.79,"Other Vegetables":0.53,"Peas":0.98,"Pig Meat":12.31,"Potatoes":0.46,"Poultry Meat":9.87,"Prawns (farmed)":26.87,"Rice":4.45,"Root Vegetables":0.43,"Soy milk":0.98,"Tofu":3.16,"Tomatoes":2.09,"Wheat & Rye":1.57,"Wine":1.79};
+const CATEGORIES = ["rice","beef","chicken","fish","eggs","soy","vegetables","fruit"];
+const PROPOSED_MAPPING = { rice:"Rice", beef:"Beef (beef herd)", chicken:"Poultry Meat", fish:"Fish (farmed)", eggs:"Eggs", soy:"Tofu", vegetables:"Other Vegetables", fruit:"Other Fruit" };
+const MAPPING_NOTES = {
+  rice: "", beef: "Dairy-herd beef is 33.3. Rendang is usually beef-herd meat.",
+  chicken: "", fish: "OWID has only farmed fish. Wild-caught fish isn't in this dataset.",
+  eggs: "", soy: "The menu item is Tempe Orek, but OWID has no tempeh. Tofu is the closest soy product. Other Pulses is 1.79.",
+  vegetables: "Sayur Lodeh and Gado-gado. Gado-gado also contains peanuts (Groundnuts 3.23) and tofu.",
+  fruit: "Es Campur and Kolak Pisang. Bananas are 0.86, and Cane Sugar (3.2) is a big part of both.",
+};
+const MENU = [
+  { name:"Nasi Putih", cat:"rice", portionKg:0.2, portions:5 },
+  { name:"Rendang Sapi", cat:"beef", portionKg:0.12, portions:3 },
+  { name:"Ayam Goreng", cat:"chicken", portionKg:0.15, portions:4 },
+  { name:"Ikan Bakar", cat:"fish", portionKg:0.18, portions:2 },
+  { name:"Telur Balado", cat:"eggs", portionKg:0.1, portions:3 },
+  { name:"Tempe Orek", cat:"soy", portionKg:0.06, portions:5 },
+  { name:"Sayur Lodeh", cat:"vegetables", portionKg:0.15, portions:4 },
+  { name:"Gado-gado", cat:"vegetables", portionKg:0.25, portions:2 },
+  { name:"Es Campur", cat:"fruit", portionKg:0.3, portions:2 },
+  { name:"Kolak Pisang", cat:"fruit", portionKg:0.25, portions:2 },
+];
+const OPTIONS = {
+  docf: [[0.7,"0.7 · food waste (Table 3.0, 2019)"],[0.5,"0.5 · bulk mixed waste (handoff proposal)"]],
+  mcf: [[0.6,"0.6 · uncategorised site"],[1.0,"1.0 · managed anaerobic landfill"],[0.8,"0.8 · unmanaged, deep ≥5 m"],[0.4,"0.4 · unmanaged, shallow <5 m"],[0.7,"0.7 · poorly managed semi-aerobic"],[0.5,"0.5 · well managed semi-aerobic"]],
+  ox: [[0,"0 · default (no CH₄-oxidising cover)"],[0.1,"0.1 · managed, soil/compost cover"]],
+  gwp: [[27.0,"27.0 · AR6, non-fossil CH₄"],[29.8,"29.8 · AR6, fossil CH₄"],[28,"28 · AR5"]],
+};
+const PARAM_INFO = {
+  doc: ["DOC", "Fraction of the waste's weight that is degradable carbon. The issue fixes it at 0.15 for food waste."],
+  docf: ["DOCf", "Of that carbon, the share that actually breaks down. The rest stays in the landfill for the long term."],
+  mcf: ["MCF", "Methane correction factor: how much of the rotting happens without oxygen. Shallow or open dumps let air in, so more of it rots into CO₂ than methane."],
+  f: ["F", "Methane share of landfill gas. The other half is CO₂, which is biogenic and not counted."],
+  ox: ["OX", "Share of methane eaten by bacteria in the cover soil before it escapes."],
+  gwp: ["GWP₁₀₀", "How much more 1 kg of methane warms the planet than 1 kg of CO₂, over 100 years."],
+};
+
+function initialState() {
+  return {
+    params: { doc: 0.15, docf: 0.7, mcf: 0.6, f: 0.5, ox: 0, gwp: 27.0 },
+    mapping: { ...PROPOSED_MAPPING },
+    cookedPerRaw: Object.fromEntries(CATEGORIES.map((c) => [c, 1])),
+    portions: MENU.map((m) => m.portions),
+    extra: [],
+  };
+}
+
+// Reducer: (state, action) => state
+function reduce(state, a) {
+  switch (a.type) {
+    case "reset": return initialState();
+    case "param": return { ...state, params: { ...state.params, [a.key]: a.value } };
+    case "map": return { ...state, mapping: { ...state.mapping, [a.cat]: a.product } };
+    case "cooked": return { ...state, cookedPerRaw: { ...state.cookedPerRaw, [a.cat]: a.value } };
+    case "portions": { const p = state.portions.slice(); p[a.i] = a.value; return { ...state, portions: p }; }
+    case "addExtra": return { ...state, extra: [...state.extra, a.entry] };
+    case "clearExtra": return { ...state, extra: [] };
+    default: return state;
+  }
+}
+
+// Derived values
+function derive(s) {
+  const chain = Co2e.landfillChain(s.params);
+  const rows = Co2e.buildFactorRows({ categories: CATEGORIES, mapping: s.mapping, owid: OWID,
+    cookedPerRaw: s.cookedPerRaw, landfillFactor: chain.factor, sourceUrl: OWID_URL });
+  const entries = MENU.map((m, i) => ({ food_category: m.cat, weight_kg: m.portionKg * s.portions[i] })).concat(s.extra);
+  const result = Co2e.computeCo2e(entries, rows);
+  return { chain, rows, entries, result };
+}
+
+let state = initialState();
+let prev = derive(state);
+let lastNote = "";
+
+function dispatch(action, note) {
+  const before = derive(state);
+  state = reduce(state, action);
+  prev = before;
+  lastNote = note || "";
+  render();
+}
+
+// ------- rendering --------
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 2) => (Math.round(n * 10 ** d) / 10 ** d).toFixed(d);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+function delta(now, was, d = 2) {
+  if (Math.abs(now - was) < 10 ** -(d + 1)) return "";
+  const s = now - was > 0 ? "+" : "−";
+  return ` <span class="small muted">(${s}${fmt(Math.abs(now - was), d)})</span>`;
+}
+
+function render() {
+  const d = derive(state);
+
+  // factor table
+  $("factorTable").innerHTML = `<table><thead><tr><th>food_category</th><th>OWID product</th>
+    <th class="num">production</th><th class="num">landfill</th><th class="num">total / kg</th><th>landfill share</th></tr></thead><tbody>
+    ${d.rows.map((r, i) => {
+      const p = prev.rows[i]; const tot = r.production_kg_co2e_per_kg + r.landfill_kg_co2e_per_kg;
+      const ptot = p.production_kg_co2e_per_kg + p.landfill_kg_co2e_per_kg;
+      const share = r.landfill_kg_co2e_per_kg / tot;
+      return `<tr><td><b>${r.food_category}</b></td><td>${esc(r.owid_product)}${r.cooked_per_raw !== 1 ? ` <span class="small muted">÷ ${r.cooked_per_raw} cooked</span>` : ""}</td>
+        <td class="num">${fmt(r.production_kg_co2e_per_kg)}${delta(r.production_kg_co2e_per_kg, p.production_kg_co2e_per_kg)}</td>
+        <td class="num">${fmt(r.landfill_kg_co2e_per_kg)}${delta(r.landfill_kg_co2e_per_kg, p.landfill_kg_co2e_per_kg)}</td>
+        <td class="num"><b>${fmt(tot)}</b>${delta(tot, ptot)}</td>
+        <td><div class="bar" title="${fmt(share * 100, 0)}% landfill"><span class="bp" style="width:${(1 - share) * 100}%"></span><span class="bl" style="width:${share * 100}%"></span></div>
+          <span class="small muted">${fmt(share * 100, 0)}%</span></td></tr>`;
+    }).join("")}</tbody></table>
+    <p class="legend" style="margin-top:8px"><span><i class="bp"></i>production (OWID)</span><span><i class="bl"></i>landfill (IPCC)</span><span>units: kg CO₂e per kg of waste</span></p>`;
+  $("changed").innerHTML = lastNote ? `<div class="changed"><b>What just changed:</b> ${lastNote}</div>` : "";
+  $("csv").textContent = "food_category,production_kg_co2e_per_kg,landfill_kg_co2e_per_kg,source\n" +
+    d.rows.map((r) => `${r.food_category},${fmt(r.production_kg_co2e_per_kg, 3)},${fmt(r.landfill_kg_co2e_per_kg, 3)},${r.source}`).join("\n");
+
+  // params
+  const sel = (key) => {
+    const opts = OPTIONS[key];
+    const v = state.params[key];
+    const known = opts.some(([x]) => x === v);
+    return `<select data-param="${key}">${opts.map(([x, l]) => `<option value="${x}" ${x === v ? "selected" : ""}>${l}</option>`).join("")}
+      ${known ? "" : `<option value="${v}" selected>${v} · custom</option>`}</select>`;
+  };
+  const num = (key, step) => `<input type="number" step="${step}" min="0" data-param="${key}" value="${state.params[key]}">`;
+  $("params").innerHTML = `<table><tbody>
+    ${["doc","docf","mcf","f","ox","gwp"].map((k) => `<tr><td style="width:84px"><b>${PARAM_INFO[k][0]}</b></td>
+      <td>${OPTIONS[k] ? sel(k) : num(k, 0.01)}${k === "doc" ? ` <span class="flag">unverified (2006, Ch. 2)</span>` : ""}${k === "gwp" ? ` <span class="flag">unverified (AR6)</span>` : ""}
+      <div class="small muted">${PARAM_INFO[k][1]}</div></td></tr>`).join("")}
+  </tbody></table>`;
+
+  // chain
+  $("chain").innerHTML = d.chain.steps.map((s, i) => {
+    const pv = prev.chain.steps[i].value;
+    return `<li><div><span class="op">${s.op}</span> ${s.label}</div>
+      <div class="val">${fmt(s.value, 4)} <span class="small muted">${s.unit}</span>${delta(s.value, pv, 4)}</div></li>`;
+  }).join("") + `<li><div><b>Landfill factor</b></div><div class="val big">${fmt(d.chain.factor, 3)}</div>
+    <div class="why">kg CO₂e per kg of food waste. The same value is used for every category.</div></li>`;
+
+  // entries
+  $("entries").innerHTML = `<table><thead><tr><th>Menu item</th><th>category</th><th class="num">portions</th><th class="num">kg</th></tr></thead><tbody>
+    ${MENU.map((m, i) => `<tr><td>${m.name}</td><td class="muted">${m.cat}</td>
+      <td class="num"><input type="number" min="0" step="1" data-portions="${i}" value="${state.portions[i]}" style="width:64px"></td>
+      <td class="num">${fmt(m.portionKg * state.portions[i], 2)}</td></tr>`).join("")}
+    ${state.extra.map((e) => `<tr><td><i>extra entry</i></td><td class="muted">${esc(e.food_category)}</td><td></td><td class="num">${fmt(e.weight_kg)}</td></tr>`).join("")}
+  </tbody></table>`;
+  $("addUnknown").textContent = state.extra.length ? "Remove the extra entries" : 'Add 1 kg of "noodles" (category without a factor)';
+
+  // result
+  const r = d.result, pr = prev.result;
+  const max = Math.max(...r.byCategory.map((a) => a.total), 0.0001);
+  $("result").innerHTML = `
+    <div class="row" style="gap:22px;align-items:baseline">
+      <div><div class="small muted">Total for the day</div><div class="big">${fmt(r.total_kg_co2e, 1)}<span class="small muted"> kg CO₂e</span></div>${delta(r.total_kg_co2e, pr.total_kg_co2e, 1)}</div>
+      <div class="small"><div>${fmt(r.waste_kg, 2)} kg waste</div>
+        <div><span style="color:var(--prod)">■</span> production ${fmt(r.production_kg_co2e, 1)}</div>
+        <div><span style="color:var(--land)">■</span> landfill ${fmt(r.landfill_kg_co2e, 1)} (${fmt(100 * r.landfill_kg_co2e / (r.total_kg_co2e || 1), 0)}%)</div></div>
+    </div>
+    <table style="margin-top:10px"><thead><tr><th>category</th><th class="num">kg</th><th class="num">kg CO₂e</th><th></th></tr></thead><tbody>
+      ${r.byCategory.map((a) => `<tr><td>${a.food_category}</td><td class="num">${fmt(a.waste_kg)}</td><td class="num">${fmt(a.total)}</td>
+        <td style="width:40%"><div class="bar" style="width:${(a.total / max) * 100}%;min-width:4px"><span class="bp" style="width:${a.production / a.total * 100}%"></span><span class="bl" style="width:${a.landfill / a.total * 100}%"></span></div></td></tr>`).join("")}
+    </tbody></table>
+    ${r.uncovered.length ? `<p class="changed" style="background:var(--warn-soft)"><b>uncovered:</b> ${r.uncovered.map((u) => `${esc(u.food_category)} (${fmt(u.waste_kg)} kg)`).join(", ")}. <code>compute_co2e</code> lists these entries separately and leaves them out of the total, as agreed.</p>` : ""}`;
+
+  // mapping
+  const products = Object.keys(OWID);
+  $("mapping").innerHTML = `<table><thead><tr><th>category</th><th>OWID product</th><th class="num">OWID kg CO₂e/kg raw</th><th class="num">cooked kg per raw kg</th><th class="num">production / kg waste</th><th>notes</th></tr></thead><tbody>
+    ${CATEGORIES.map((c) => {
+      const prod = state.mapping[c];
+      return `<tr><td><b>${c}</b></td>
+        <td><select data-map="${c}">${products.map((p) => `<option ${p === prod ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+          ${prod !== PROPOSED_MAPPING[c] ? `<div class="small flag">proposal was ${esc(PROPOSED_MAPPING[c])}</div>` : ""}</td>
+        <td class="num">${fmt(OWID[prod])}</td>
+        <td class="num"><input type="number" min="0.1" step="0.1" data-cooked="${c}" value="${state.cookedPerRaw[c]}" style="width:64px"></td>
+        <td class="num"><b>${fmt(Co2e.productionFactor(OWID[prod], state.cookedPerRaw[c]))}</b></td>
+        <td class="small muted">${MAPPING_NOTES[c]}</td></tr>`;
+    }).join("")}</tbody></table>`;
+
+  renderScenario();
+}
+
+function renderOwidAll() {
+  const rows = Object.entries(OWID).sort((a, b) => b[1] - a[1]);
+  const used = new Set(Object.values(PROPOSED_MAPPING));
+  $("owidAll").innerHTML = `<thead><tr><th>OWID product</th><th class="num">kg CO₂e / kg</th><th></th></tr></thead><tbody>` +
+    rows.map(([p, v]) => `<tr><td>${used.has(p) ? `<b>${esc(p)}</b>` : esc(p)}</td><td class="num">${fmt(v)}</td>
+      <td style="width:50%"><div class="bar" style="width:${Math.max(0.5, v / 99.48 * 100)}%;min-width:2px"><span class="bp" style="width:100%"></span></div></td></tr>`).join("") + "</tbody>";
+}
+
+// ------- walkthroughs --------
+const SCENARIOS = [
+  { id: "handoff", title: "1 · The handoff's 0.81",
+    desc: "The handoff proposed DOCf 0.5, which comes to 0.81 kg CO₂e/kg. Watch what changes when you swap in the food-waste DOCf the PDF recommends.",
+    steps: [
+      { label: "Set DOCf to 0.5 (handoff proposal)", action: { type: "param", key: "docf", value: 0.5 }, note: "DOCf 0.7 → 0.5. The landfill factor matches the handoff's 0.81." },
+      { label: "Set DOCf back to 0.7 (Table 3.0: food waste)", action: { type: "param", key: "docf", value: 0.7 }, note: "DOCf 0.5 → 0.7. The landfill factor rises 40% to 1.13. Beef barely moves. Vegetables and fruit move a lot." },
+    ] },
+  { id: "site", title: "2 · Which landfill?",
+    desc: "MCF depends on where the waste ends up. Jakarta's waste mostly goes to large, deep open dumps such as Bantar Gebang, not engineered sanitary landfills. 'Uncategorised' (0.6) is for when we can't say. Step through the site types.",
+    steps: [
+      { label: "Unmanaged deep dump (MCF 0.8)", action: { type: "param", key: "mcf", value: 0.8 }, note: "MCF 0.6 → 0.8: a deep open dump (≥5 m). Deep waste piles run out of oxygen, so more of the carbon becomes methane." },
+      { label: "Managed anaerobic landfill (MCF 1.0)", action: { type: "param", key: "mcf", value: 1.0 }, note: "MCF → 1.0: the worst case, an engineered landfill with no air at all." },
+      { label: "…with a soil cover that oxidises methane (OX 0.1)", action: { type: "param", key: "ox", value: 0.1 }, note: "OX 0 → 0.1: bacteria in the cover soil eat 10% of the methane before it escapes." },
+      { label: "Unmanaged shallow dump (MCF 0.4, OX 0)", action: { type: "param", key: "mcf", value: 0.4 }, then: { type: "param", key: "ox", value: 0 }, note: "MCF → 0.4, OX → 0: a shallow open dump. Air gets in, so it rots more into CO₂, which isn't counted." },
+      { label: "Back to uncategorised (MCF 0.6)", action: { type: "param", key: "mcf", value: 0.6 }, note: "MCF → 0.6, the IPCC default when the site type is unknown." },
+    ] },
+  { id: "matters", title: "3 · Does the landfill factor even matter?",
+    desc: "Compare the landfill share of each category in the 'landfill share' column. Beef is dominated by production, while vegetables are dominated by landfill. Over a whole day the mix decides it.",
+    steps: [
+      { label: "Make it a meat-heavy day (10 rendang)", action: { type: "portions", i: 1, value: 10 }, note: "Rendang 3 → 10 portions. The day's total jumps, and the landfill share of the total shrinks." },
+      { label: "Make it a vegetable-heavy day (0 rendang, 15 lodeh)", action: { type: "portions", i: 1, value: 0 }, then: { type: "portions", i: 6, value: 15 }, note: "Rendang → 0, Sayur Lodeh → 15. Now the landfill makes up a much larger share." },
+      { label: "Set MCF 1.0 on this vegetable day", action: { type: "param", key: "mcf", value: 1.0 }, note: "On a vegetable-heavy day the landfill assumption moves the total a lot." },
+    ] },
+  { id: "rice", title: "4 · Cooked rice",
+    desc: "Nasi is weighed cooked, but OWID's 4.45 is per kg of raw rice. 1 kg of raw rice makes about 2.5 kg of cooked rice. Should we correct for that, or accept a high estimate?",
+    steps: [
+      { label: "Apply rice correction (÷ 2.5)", action: { type: "cooked", cat: "rice", value: 2.5 }, note: "Rice production 4.45 → 1.78 per kg of cooked waste. The 1 kg of nasi now counts about 2.7 kg CO₂e less." },
+      { label: "Remove it again", action: { type: "cooked", cat: "rice", value: 1 }, note: "Back to the uncorrected value, the handoff's proposal: accept it and label the result as an estimate." },
+    ] },
+  { id: "map", title: "5 · Mapping alternatives",
+    desc: "Try the closest alternative OWID product for each mapping that's open to debate.",
+    steps: [
+      { label: "beef → Beef (dairy herd)", action: { type: "map", cat: "beef", product: "Beef (dairy herd)" }, note: "Beef 99.48 → 33.3. This is the biggest single swing in the whole model." },
+      { label: "soy → Other Pulses", action: { type: "map", cat: "soy", product: "Other Pulses" }, note: "Soy 3.16 → 1.79. Tempeh is closer to whole soybeans than to tofu." },
+      { label: "fish → Prawns (farmed)", action: { type: "map", cat: "fish", product: "Prawns (farmed)" }, note: "Only to show the range. Ikan Bakar is fish, so Fish (farmed) stays the honest pick." },
+      { label: "Restore the proposed mapping", action: { type: "reset" }, note: "Everything is back to the defaults." },
+    ] },
+  { id: "unknown", title: "6 · Unknown category",
+    desc: "A menu item whose category has no factor row. compute_co2e should list it under uncovered and leave it out of the total, without failing.",
+    steps: [
+      { label: 'Log 1 kg of waste with category "noodles"', action: { type: "addExtra", entry: { food_category: "noodles", weight_kg: 1 } }, note: "The total doesn't change, and an 'uncovered' line appears under the sample-day result." },
+      { label: "Clear it", action: { type: "clearExtra" }, note: "Removed." },
+    ] },
+];
+let activeScenario = SCENARIOS[0].id;
+let stepIdx = 0;
+
+function startScenario(id) {
+  activeScenario = id; stepIdx = 0;
+  state = initialState(); prev = derive(state);
+  lastNote = `Started "${SCENARIOS.find((s) => s.id === id).title}" from the defaults.`;
+  render();
+}
+
+function renderScenario() {
+  $("tabs").innerHTML = SCENARIOS.map((s) => `<button data-tab="${s.id}" class="${s.id === activeScenario ? "active" : ""}">${esc(s.title)}</button>`).join("");
+  const sc = SCENARIOS.find((s) => s.id === activeScenario);
+  $("scenario").innerHTML = `<p>${esc(sc.desc)}</p><div class="steps">
+    ${sc.steps.map((st, i) => `<div class="step ${i < stepIdx ? "done" : ""}">
+      <button data-step="${i}" class="${i === stepIdx ? "primary" : ""}" ${i > stepIdx ? "disabled" : ""}>${i + 1}. ${esc(st.label)}</button></div>`).join("")}
+    ${stepIdx >= sc.steps.length ? `<p class="small muted">Done. Pick another tab, or keep changing the settings freely.</p>` : ""}
+  </div>
+  <div class="row" style="margin-top:12px"><button data-restart="1">Restart this walkthrough</button><button data-resetall="1">Reset everything to the defaults</button></div>`;
+}
+
+function runStep(i) {
+  const sc = SCENARIOS.find((s) => s.id === activeScenario);
+  const st = sc.steps[i];
+  const before = derive(state);
+  state = reduce(state, st.action);
+  if (st.then) state = reduce(state, st.then);
+  prev = before; lastNote = st.note; stepIdx = i + 1;
+  render();
+}
+
+// ------- events --------
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset.param) {
+    const k = t.dataset.param, v = Number(t.value);
+    if (!Number.isFinite(v)) return;
+    dispatch({ type: "param", key: k, value: v }, `${PARAM_INFO[k][0]} ${state.params[k]} → ${v}.`);
+  } else if (t.dataset.map) {
+    const c = t.dataset.map;
+    dispatch({ type: "map", cat: c, product: t.value }, `${c}: ${state.mapping[c]} (${OWID[state.mapping[c]]}) → ${t.value} (${OWID[t.value]}).`);
+  } else if (t.dataset.cooked) {
+    const c = t.dataset.cooked, v = Number(t.value);
+    if (!(v > 0)) return;
+    dispatch({ type: "cooked", cat: c, value: v }, `${c}: cooked kg per raw kg ${state.cookedPerRaw[c]} → ${v}.`);
+  } else if (t.dataset.portions) {
+    const i = Number(t.dataset.portions), v = Math.max(0, Math.round(Number(t.value) || 0));
+    dispatch({ type: "portions", i, value: v }, `${MENU[i].name}: ${state.portions[i]} → ${v} portions.`);
+  }
+});
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button");
+  if (!t) return;
+  if (t.dataset.tab) startScenario(t.dataset.tab);
+  else if (t.dataset.step) runStep(Number(t.dataset.step));
+  else if (t.dataset.restart) startScenario(activeScenario);
+  else if (t.dataset.resetall) { stepIdx = 0; dispatch({ type: "reset" }, "Everything reset to the defaults."); }
+  else if (t.id === "addUnknown") {
+    if (state.extra.length) dispatch({ type: "clearExtra" }, "Removed the extra entries.");
+    else dispatch({ type: "addExtra", entry: { food_category: "noodles", weight_kg: 1 } }, 'Added 1 kg of "noodles", which has no factor row. See uncovered.');
+  }
+});
+
+renderOwidAll();
+render();
+</script>
+</body>
+</html>
