@@ -1,5 +1,13 @@
 import type { InferInsertModel } from "drizzle-orm";
-import type { menuItems, outlets, prepLogs, sales, users, wasteEntries } from "@sisaku/db";
+import type {
+  menuItems,
+  outlets,
+  prepLogs,
+  sales,
+  users,
+  WasteCause,
+  wasteEntries,
+} from "@sisaku/db";
 import { addDays, eventsOn, weekday } from "./calendar.js";
 import { createRng, type Rng } from "./rng.js";
 
@@ -7,14 +15,6 @@ export const DEFAULT_SEED = 20261119;
 export const DEFAULT_START = "2026-02-01"; // 60 days covering Ramadan 2026 and Eid al-Fitr
 export const DEFAULT_DAYS = 60;
 export const HELD_OUT_DAYS = 14;
-
-export const WASTE_CAUSES = [
-  "over_prep",
-  "spoilage",
-  "plate_waste",
-  "prep_error",
-  "expired",
-] as const;
 
 export type OutletRow = InferInsertModel<typeof outlets> & { id: string };
 export type UserRow = InferInsertModel<typeof users> & { id: string };
@@ -343,7 +343,7 @@ export function generateMockData(opts: GenerateOptions = {}): MockDataset {
         const leftover = prep - qtySold;
         const portionKg = Number(item.portionWeightKg);
         const loggedAt = new Date(`${date}T14:30:00Z`);
-        const addEntry = (portions: number, cause: (typeof WASTE_CAUSES)[number]) => {
+        const addEntry = (portions: number, cause: WasteCause) => {
           if (portions <= 0) return;
           const photo = rng.chance(0.65);
           const id = rng.uuid();

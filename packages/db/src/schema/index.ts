@@ -17,6 +17,19 @@ import {
 
 export const userRole = pgEnum("user_role", ["staff", "manager", "owner"]);
 export const wasteSource = pgEnum("waste_source", ["photo", "text"]);
+
+/**
+ * Allowed values for `waste_entries.cause`. The column stays text; writers (kitchen-mcp,
+ * mock-data) validate against this list so a new cause needs no migration.
+ */
+export const WASTE_CAUSES = [
+  "over_prep",
+  "spoilage",
+  "plate_waste",
+  "prep_error",
+  "expired",
+] as const;
+export type WasteCause = (typeof WASTE_CAUSES)[number];
 export const recommendationStatus = pgEnum("recommendation_status", [
   "pending",
   "approved",

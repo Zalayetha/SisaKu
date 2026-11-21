@@ -93,12 +93,14 @@ describe("csv validation", () => {
 const url = process.env.TEST_DATABASE_URL;
 beforeAll(() => {
   if (!url) return;
-  // Make sure the schema exists on an empty test DB (migrating up is idempotent).
-  execSync("pnpm exec tsx scripts/migrate.ts up", {
-    cwd: fileURLToPath(new URL("..", import.meta.url)),
-    stdio: "pipe",
-    env: { ...process.env, DATABASE_URL: url },
-  });
+  // Start from an empty schema: other test files share this database and leave rows behind,
+  // and the assertions below count every row in `sales`.
+  for (const d of ["reset", "up"])
+    execSync(`pnpm exec tsx scripts/migrate.ts ${d}`, {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      stdio: "pipe",
+      env: { ...process.env, DATABASE_URL: url },
+    });
 });
 it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothing", async () => {
   const { db, pool } = createDb(url);
