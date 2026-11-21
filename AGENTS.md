@@ -93,3 +93,17 @@ Supporting context, ideas, assumptions, and open questions.
 - [0001: Product direction](product/0001-product-direction.md)
 
 Add a link here whenever a document is created.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in the Multica project "SisaKu" (workspace Zalsoft Technology, `ZALS-*` keys), managed with the `multica` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels, each named after its role (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one root `GLOSSARY.md`, with decisions in `docs/decision/`. See `docs/agents/domain.md`.
