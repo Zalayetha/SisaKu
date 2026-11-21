@@ -17,7 +17,7 @@ jobs:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # DB-backed tests (packages/db, packages/kitchen-mcp) skip without TEST_DATABASE_URL.
+    # DB-backed tests (packages/db, packages/kitchen-mcp, packages/impact-mcp) skip without TEST_DATABASE_URL.
     services:
       postgres:
         image: postgres:16.6-alpine

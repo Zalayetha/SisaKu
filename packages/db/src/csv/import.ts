@@ -1,15 +1,22 @@
 import { inArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { menuItems, outlets, prepLogs, sales } from "../schema/index";
+import { emissionFactors, menuItems, outlets, prepLogs, sales } from "../schema/index";
 import { csvTables, readCsv, type CsvError, type CsvRow, type CsvTableName } from "./format";
 
-const tables = { outlets, menu_items: menuItems, sales, prep_logs: prepLogs } as const;
+const tables = {
+  outlets,
+  menu_items: menuItems,
+  sales,
+  prep_logs: prepLogs,
+  emission_factors: emissionFactors,
+} as const;
 /** Parents before children so foreign keys resolve. */
 export const IMPORT_ORDER: readonly CsvTableName[] = [
   "outlets",
   "menu_items",
   "sales",
   "prep_logs",
+  "emission_factors",
 ];
 
 const toRecord = (table: CsvTableName, row: CsvRow) =>
@@ -155,8 +162,8 @@ export async function importCsv(
     for (const [name, rows] of parsed) {
       const t = tables[name] as any;
       const cols = csvTables[name].columns;
-      const keys =
-        name === "sales" || name === "prep_logs" ? ["outletId", "itemId", "date"] : ["id"];
+      const pk = csvTables[name].key as readonly string[];
+      const keys = cols.filter((c) => pk.includes(c.name)).map((c) => c.key);
       const update = Object.fromEntries(
         cols
           .filter((c) => !keys.includes(c.key))

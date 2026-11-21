@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
@@ -29,6 +30,14 @@ const sample: Record<CsvTableName, CsvRow[]> = {
   ],
   sales: [{ outlet_id: O, item_id: I, date: "2026-11-01", qty_sold: 42 }],
   prep_logs: [{ outlet_id: O, item_id: I, date: "2026-11-01", qty_prepped: 50 }],
+  emission_factors: [
+    {
+      food_category: "rice",
+      production_kg_co2e_per_kg: "4.45",
+      landfill_kg_co2e_per_kg: "1.134",
+      source: 'Our World in Data, "Rice"; IPCC',
+    },
+  ],
 };
 
 describe("csv round trip", () => {
@@ -97,6 +106,45 @@ describe("csv validation", () => {
     expect(m("0").errors[0]!.message).toMatch(/must be greater than 0/);
     expect(m("-0.1").errors[0]!.message).toMatch(/must be greater than 0/);
     expect(m("0.001").errors).toEqual([]);
+  });
+  it("rejects emission factors that are not positive, or a duplicate category", () => {
+    const f = sample.emission_factors[0]!;
+    const { errors } = readCsv(
+      "emission_factors",
+      serializeCsv("emission_factors", [
+        f,
+        { ...f, food_category: "beef", production_kg_co2e_per_kg: "0" },
+        { ...f, food_category: "fish", landfill_kg_co2e_per_kg: "-1" },
+        { ...f, source: "again" },
+      ]),
+    );
+    expect(errors.map((e) => `${e.line}:${e.message}`)).toEqual([
+      "3:production_kg_co2e_per_kg: 0 must be greater than 0",
+      "4:landfill_kg_co2e_per_kg: -1 must be greater than 0",
+      "5:duplicate key (food_category) already seen on line 2",
+    ]);
+  });
+  it("the committed emission factor seed is valid and covers every mock-data food category", () => {
+    const text = readFileSync(new URL("../seed/emission_factors.csv", import.meta.url), "utf8");
+    const { rows, errors } = readCsv("emission_factors", text);
+    expect(errors).toEqual([]);
+    expect(rows.map((r) => r.food_category).sort()).toEqual([
+      "beef",
+      "chicken",
+      "eggs",
+      "fish",
+      "fruit",
+      "rice",
+      "soy",
+      "vegetables",
+    ]);
+    // Landfill factor (ADR 0011): DOC x DOCf x MCF x F x 16/12 x (1 - OX) x GWP100.
+    const landfill = 0.15 * 0.7 * 0.6 * 0.5 * (16 / 12) * (1 - 0) * 27.0;
+    for (const r of rows) {
+      expect(Number(r.landfill_kg_co2e_per_kg)).toBeCloseTo(landfill, 6);
+      expect(r.source).toMatch(/ourworldindata\.org/);
+      expect(r.source).toMatch(/IPCC/);
+    }
   });
   it("reports unterminated quotes", () => {
     expect(parseCsv('a,"b\n').error).toMatch(/unterminated/);
@@ -168,8 +216,19 @@ it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothin
     });
     expect(rehome.ok).toBe(false);
     expect(rehome.errors[0]).toMatchObject({ file: "menu_items", line: 2, column: "outlet_id" });
+    // Emission factors upsert by food_category: re-importing with a new value updates the row.
+    const factors = (v: string) => ({
+      emission_factors: serializeCsv("emission_factors", [
+        { ...sample.emission_factors[0]!, production_kg_co2e_per_kg: v },
+      ]),
+    });
+    expect((await importCsv(db, factors("5"))).ok).toBe(true);
+    const ef = await pool.query(
+      "select food_category, production_kg_co2e_per_kg from emission_factors",
+    );
+    expect(ef.rows).toEqual([{ food_category: "rice", production_kg_co2e_per_kg: 5 }]);
   } finally {
-    await pool.query("truncate prep_logs, sales, menu_items, outlets cascade");
+    await pool.query("truncate prep_logs, sales, menu_items, outlets, emission_factors cascade");
     await pool.end();
   }
 });

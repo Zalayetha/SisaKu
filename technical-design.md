@@ -67,7 +67,7 @@ Two MCP servers form the only path to data, so both agents share one tool layer 
 | MCP server | Tools | Resources | Build |
 | --- | --- | --- | --- |
 | `kitchen-mcp` | `get_sales(outlet, date_range, item?)`, `get_menu(outlet)`, `get_prep_log(outlet, date)`, `log_waste(entry)`, `query_waste(filters, group_by)`, `update_entry(id, patch)` | Menu with cost and weight per portion; waste cause list | Full; reads mock data from Postgres, later a vendor API or CSV export |
-| `impact-mcp` | `get_factor(food_category)`, `compute_co2e(entries)`, `find_foodbanks(location)`, `draft_pickup(foodbank_id, items)`, `submit_pickup(draft_id)` | Emission factor table with sources; food bank list (mock) | Emission tools full; food bank tools a thin mock where `submit_pickup` only records the request |
+| `impact-mcp` | `get_factor(food_category)`, `compute_co2e(filters)`, `find_foodbanks(outlet_id, location)`, `draft_pickup(outlet_id, foodbank_id, items)`, `submit_pickup(outlet_id, id)` (ADR 0011) | Emission factor table with sources; food bank list (mock) | Emission tools full; food bank tools a thin mock where `submit_pickup` only records the request |
 
 **MCP server we use (not build):** the Open-Meteo weather MCP server ([cmer81/open-meteo-mcp](https://github.com/cmer81/open-meteo-mcp), no API key) gives tomorrow's rain forecast per outlet location to the pipeline's forecast step, connected as an MCP client. Its output is treated as data, and if it is unavailable the forecast runs without the weather adjustment.
 
