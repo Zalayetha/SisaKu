@@ -17,6 +17,23 @@ jobs:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # DB-backed tests (packages/db, packages/kitchen-mcp) skip without TEST_DATABASE_URL.
+    services:
+      postgres:
+        image: postgres:16.6-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sisaku_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/sisaku_test
     steps:
       - uses: actions/checkout@v4
 

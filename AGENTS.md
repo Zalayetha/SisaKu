@@ -87,6 +87,8 @@ Supporting context, ideas, assumptions, and open questions.
 - [0006: Use a seeded, deterministic mock-data generator](decision/0006-use-seeded-mock-data-generator.md)
 - [0007: Import sales, prep logs and menu from CSV through `@sisaku/db`](decision/0007-use-csv-import-in-db-package.md)
 - [0008: Enforce outlet and item pairing with composite foreign keys](decision/0008-use-composite-foreign-keys-for-outlet-item-pairing.md)
+- [0009: kitchen-mcp tool design](decision/0009-kitchen-mcp-tool-design.md)
+- [0010: Store waste photos on a VPS Docker volume](decision/0010-store-waste-photos-on-a-vps-volume.md)
 
 ### Product
 
