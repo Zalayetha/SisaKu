@@ -345,7 +345,6 @@ describe.skipIf(!testDbUrl)("kitchen tools", () => {
     });
   });
 
-  // portion_weight_kg has no CHECK constraint and the CSV importer accepts 0 (PR #11 review).
   // Migration 0002 forbids a 0 portion weight; kitchen-mcp still guards against it for a database
   // that has not been migrated yet. Drop the check to simulate one, and restore it afterwards.
   describe("an item with a 0 portion weight (database without the check)", () => {
