@@ -61,7 +61,33 @@ importers:
         specifier: ^4.19.0
         version: 4.23.15
 
-  packages/impact-mcp: {}
+  packages/impact-mcp:
+    dependencies:
+      '@hono/node-server':
+        specifier: 2.1.6
+        version: 2.1.6(hono@4.13.16)
+      '@modelcontextprotocol/server':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@sisaku/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(pg@8.23.1)
+      hono:
+        specifier: 4.13.16
+        version: 4.13.16
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.4.0
+        version: 2.4.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.15
 
   packages/kitchen-mcp:
     dependencies:

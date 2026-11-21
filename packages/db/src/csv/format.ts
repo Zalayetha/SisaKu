@@ -2,7 +2,7 @@
  * CSV format shared by the mock data generator and the importer.
  *
  * One file per table; the header is the table's snake_case column names, in the order below.
- * Files: outlets.csv, menu_items.csv, sales.csv, prep_logs.csv. RFC 4180 quoting, UTF-8,
+ * Files: outlets.csv, menu_items.csv, sales.csv, prep_logs.csv, emission_factors.csv. RFC 4180 quoting, UTF-8,
  * comma separated, a header row is required, empty cell = NULL (only where nullable).
  */
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,6 +27,7 @@ export interface Column {
 
 export const csvTables = {
   outlets: {
+    key: ["id"],
     columns: [
       { name: "id", key: "id", kind: "uuid" },
       { name: "name", key: "name", kind: "text" },
@@ -35,6 +36,7 @@ export const csvTables = {
     ],
   },
   menu_items: {
+    key: ["id"],
     columns: [
       { name: "id", key: "id", kind: "uuid" },
       { name: "outlet_id", key: "outletId", kind: "uuid" },
@@ -61,6 +63,7 @@ export const csvTables = {
     ],
   },
   sales: {
+    key: ["outlet_id", "item_id", "date"],
     columns: [
       { name: "outlet_id", key: "outletId", kind: "uuid" },
       { name: "item_id", key: "itemId", kind: "uuid" },
@@ -69,6 +72,7 @@ export const csvTables = {
     ],
   },
   prep_logs: {
+    key: ["outlet_id", "item_id", "date"],
     columns: [
       { name: "outlet_id", key: "outletId", kind: "uuid" },
       { name: "item_id", key: "itemId", kind: "uuid" },
@@ -76,7 +80,31 @@ export const csvTables = {
       { name: "qty_prepped", key: "qtyPrepped", kind: "int", min: 0 },
     ],
   },
-} as const satisfies Record<string, { columns: readonly Column[] }>;
+  // kg CO2e per kg of food waste, one row per menu_items.food_category (ZALS-14, ADR 0011).
+  emission_factors: {
+    key: ["food_category"],
+    columns: [
+      { name: "food_category", key: "foodCategory", kind: "text" },
+      {
+        name: "production_kg_co2e_per_kg",
+        key: "productionKgCo2ePerKg",
+        kind: "numeric",
+        scale: 6,
+        min: 0,
+        minExclusive: true,
+      },
+      {
+        name: "landfill_kg_co2e_per_kg",
+        key: "landfillKgCo2ePerKg",
+        kind: "numeric",
+        scale: 6,
+        min: 0,
+        minExclusive: true,
+      },
+      { name: "source", key: "source", kind: "text" },
+    ],
+  },
+} as const satisfies Record<string, { key: readonly string[]; columns: readonly Column[] }>;
 
 export type CsvTableName = keyof typeof csvTables;
 export type CsvRow = Record<string, string | number | null>;
@@ -235,7 +263,7 @@ export function readCsv(table: CsvTableName, text: string) {
     return { rows, rowLines, errors };
   }
   const seen = new Map<string, number>();
-  const pk = table === "sales" || table === "prep_logs" ? ["outlet_id", "item_id", "date"] : ["id"];
+  const pk = csvTables[table].key;
   for (let i = 1; i < records.length; i++) {
     const rec = records[i]!;
     const line = lines[i]!;

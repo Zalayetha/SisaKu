@@ -1,2 +1,4 @@
-/** Placeholder entry point for @sisaku/impact-mcp. Real code lands in later issues. */
-export const packageName = "@sisaku/impact-mcp";
+export { createImpactServer } from "./server";
+export * from "./impact";
+export * from "./foodbanks";
+export * from "./schemas";

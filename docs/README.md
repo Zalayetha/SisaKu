@@ -14,7 +14,8 @@ docs/
 │   ├── 0007-use-csv-import-in-db-package.md
 │   ├── 0008-use-composite-foreign-keys-for-outlet-item-pairing.md
 │   ├── 0009-kitchen-mcp-tool-design.md
-│   └── 0010-store-waste-photos-on-a-vps-volume.md
+│   ├── 0010-store-waste-photos-on-a-vps-volume.md
+│   └── 0011-impact-mcp-approval-boundary-and-co2e-method.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

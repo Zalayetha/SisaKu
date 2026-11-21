@@ -5,7 +5,7 @@ import { createDb, formatErrors, importCsv, IMPORT_ORDER, type CsvTableName } fr
 const dir = process.argv[2];
 if (!dir)
   throw new Error(
-    "usage: import-csv <directory containing outlets.csv, menu_items.csv, sales.csv, prep_logs.csv>",
+    "usage: import-csv <directory containing any of outlets.csv, menu_items.csv, sales.csv, prep_logs.csv, emission_factors.csv>",
   );
 const files: Partial<Record<CsvTableName, string>> = {};
 for (const name of IMPORT_ORDER) {
