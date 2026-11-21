@@ -85,6 +85,19 @@ describe("csv validation", () => {
     expect(m("123456.000").errors[0]!.message).toMatch(/more than 5 digits before/);
     expect(m("99999.999").errors).toEqual([]);
   });
+  it("rejects a zero portion weight but accepts the smallest positive one", () => {
+    const m = (w: string) =>
+      readCsv(
+        "menu_items",
+        serializeCsv("menu_items", [{ ...sample.menu_items[0]!, portion_weight_kg: w }]),
+      );
+    expect(m("0.000").errors.map((e) => `${e.line}:${e.message}`)).toEqual([
+      "2:portion_weight_kg: 0.000 must be greater than 0",
+    ]);
+    expect(m("0").errors[0]!.message).toMatch(/must be greater than 0/);
+    expect(m("-0.1").errors[0]!.message).toMatch(/must be greater than 0/);
+    expect(m("0.001").errors).toEqual([]);
+  });
   it("reports unterminated quotes", () => {
     expect(parseCsv('a,"b\n').error).toMatch(/unterminated/);
   });
@@ -114,6 +127,23 @@ it.skipIf(!url)("imports into Postgres and is idempotent; bad file writes nothin
     expect(r.rows).toEqual([{ qty_sold: 42 }]);
     const bad = await importCsv(db, { sales: "outlet_id,item_id,date,qty_sold\nx,y,z,w\n" });
     expect(bad.ok).toBe(false);
+    // A zero portion weight is rejected by the reader; nothing in the batch is written.
+    const zero = await importCsv(db, {
+      menu_items: serializeCsv("menu_items", [
+        {
+          ...sample.menu_items[0]!,
+          id: "33333333-3333-4333-8333-333333333333",
+          portion_weight_kg: "0.000",
+        },
+      ]),
+    });
+    expect(zero.ok).toBe(false);
+    expect(zero.errors[0]).toMatchObject({
+      file: "menu_items",
+      line: 2,
+      column: "portion_weight_kg",
+    });
+    expect((await pool.query("select count(*)::int as n from menu_items")).rows[0].n).toBe(1);
     const orphan = await importCsv(db, {
       sales: serializeCsv("sales", [{ ...sample.sales[0]!, item_id: O, date: "2026-11-02" }]),
     });

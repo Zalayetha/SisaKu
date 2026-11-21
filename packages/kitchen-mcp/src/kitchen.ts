@@ -73,7 +73,7 @@ function checkLoggedAt(loggedAt: string) {
 }
 
 function portionsToKg(portions: number, item: { id: string; portionWeightKg: number }) {
-  // The schema allows a 0 portion weight (e.g. from a CSV typo); portions cannot be converted then.
+  // Migration 0002 rejects a 0 portion weight; this guards a database that has not run it yet.
   if (item.portionWeightKg <= 0)
     throw new KitchenError(
       `Item ${item.id} has no portion weight, so portions cannot be converted to kg; log weight_kg instead`,
@@ -223,8 +223,9 @@ export async function queryWaste(db: Db, input: QueryWasteInput): Promise<QueryW
   if (filters.item_id) where.push(eq(wasteEntries.itemId, filters.item_id));
   if (filters.cause) where.push(eq(wasteEntries.cause, filters.cause));
 
-  // nullif: an item with a 0 portion weight still counts toward waste_kg, but is left out of
-  // the estimated portions and cost instead of failing the whole query with division by zero.
+  // nullif: defence in depth for a database without migration 0002. An item with a 0 portion
+  // weight still counts toward waste_kg, but is left out of the estimated portions and cost
+  // instead of failing the whole query with division by zero.
   const portions = sql`${wasteEntries.weightKg} / nullif(${menuItems.portionWeightKg}, 0)`;
   const totals = {
     waste_kg: sql<string>`round(sum(${wasteEntries.weightKg}), 3)`,
