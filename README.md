@@ -12,6 +12,8 @@ cp .env.example .env   # fill in values; never commit .env
 docker compose up -d   # Postgres, Redis, Qdrant
 ```
 
+The Copilot also needs Anvia Lens for tracing: start it from `infra/lens` (see `infra/lens/README.md`) and put its keys in `.env`.
+
 ## Scripts
 
 | Command             | What it does                               |
@@ -32,4 +34,5 @@ Decisions and product notes are in `docs/` (see `AGENTS.md` for the index and fo
 
 - `apps/api`, `apps/worker`: Hono API and BullMQ worker (placeholders for now)
 - `apps/copilot`: the Kitchen Copilot Telegram bot (polling). Needs `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, `DATABASE_URL` and the three `ANVIA_LENS_*` settings; it spawns both MCP servers over stdio unless `KITCHEN_MCP_URL` / `IMPACT_MCP_URL` are set (ADR 0012). A sender is answered only if their Telegram ID is in `users.telegram_user_id`.
+- `infra/lens`: self-hosted Anvia Lens, its own Compose project (ADR 0013)
 - `packages/shared`, `packages/db`, `packages/kitchen-mcp`, `packages/impact-mcp`, `packages/agents`: placeholders for the shared code, Drizzle schema, the two MCP servers, and the agents
