@@ -18,7 +18,7 @@ ZALS-16 lets staff log waste in the Kitchen Copilot by sending a photo or a text
 
 **What a waste guess holds**
 
-- One guess comes from one photo or text and has up to five lines, each a menu item with a portion count or a typed weight. Photos never produce a weight. A mixed dish that is one menu item is one line; different menu items in one bin are separate lines. One Simpan saves one waste entry per line, sharing the cause and photo.
+- One guess comes from one photo or text and has up to five lines, each a menu item with a portion count or a typed weight. Photos never produce a weight. A mixed dish that is one menu item is one line; different menu items in one bin are separate lines. One Simpan saves one waste entry per line, sharing the cause and photo, in a single `log_waste` call that saves every line or none. The largest weight one entry can hold is checked when the guess is proposed, so a card does not offer an amount `log_waste` would reject.
 - The same Copilot agent reads the photo (as image input) and the text; confidence is the model's own estimate. A separate structured vision step can replace this later without changing the gate.
 - `logged_at` is the message time unless the text names another time. Items that are not on the menu are not guessed.
 - A text message replaces the chat's open guess only when the model marks its proposal as a correction (`corrects_open_guess`); otherwise it starts a new guess, so a separate report never inherits another guess's photo. A replaced card is edited to say so and its buttons stop working.
@@ -26,6 +26,7 @@ ZALS-16 lets staff log waste in the Kitchen Copilot by sending a photo or a text
 **Drafts and photos**
 
 - Waste guesses live in memory, keyed by a guess id carried in the action id (`w:<guessId>:<action>`, within Telegram's 64-byte limit). They expire after 30 minutes and are lost on restart, like chat history. A tap on an expired guess asks the user to send it again.
+- A guess stays open until its save succeeds. While a save runs, further taps are ignored; if it fails, nothing was logged and the user can tap Simpan again, reusing the photo and `agent_runs` row already written. A retry first looks for entries already linked to that run, so a save whose reply was lost is not logged twice; the run is marked succeeded only once its entries exist. Saved, cancelled and replaced guesses are remembered for 30 minutes, so a late tap on their card answers "sudah tersimpan / dibatalkan / diganti" and leaves the card's text alone.
 - Photo bytes (Telegram photos and image files up to 10 MB) stay with the guess and are written to the photos volume (ADR 0010) as `<outlet_id>/<guessId>.jpg` only on Simpan, so cancelled guesses leave nothing on disk.
 
 **Feedback**

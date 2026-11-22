@@ -32,6 +32,9 @@ export const WASTE_CAUSES = [
   "expired",
 ] as const;
 export type WasteCause = (typeof WASTE_CAUSES)[number];
+
+/** Largest waste weight one entry can hold: `waste_entries.weight_kg` is numeric(8, 3). */
+export const MAX_WASTE_WEIGHT_KG = 99999.999;
 export const recommendationStatus = pgEnum("recommendation_status", [
   "pending",
   "approved",

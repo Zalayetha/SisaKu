@@ -6,11 +6,12 @@ import {
   type CompletionRequest,
   type CompletionResponse,
   type JsonValue,
+  type ToolCallContext,
 } from "@anvia/core";
 import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability";
 import { McpClient, McpClientGroup } from "@anvia/mcp";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
-import { agentRuns, users, wasteEntries } from "@sisaku/db";
+import { agentRuns, menuItems, users, wasteEntries } from "@sisaku/db";
 import { createImpactServer } from "@sisaku/impact-mcp";
 import { createKitchenServer } from "@sisaku/kitchen-mcp";
 import { eq } from "drizzle-orm";
@@ -27,7 +28,16 @@ import {
   type TurnDeps,
   type TurnResult,
 } from "./turn";
-import { ASK_CORRECTION_TEXT, EXPIRED_TEXT, NOT_READY_TEXT, NOT_YOURS_TEXT } from "./waste/actions";
+import {
+  ALREADY_CANCELLED_TEXT,
+  ALREADY_REPLACED_TEXT,
+  ALREADY_SAVED_TEXT,
+  ASK_CORRECTION_TEXT,
+  EXPIRED_TEXT,
+  NOT_READY_TEXT,
+  NOT_YOURS_TEXT,
+  SAVE_FAILED_TEXT,
+} from "./waste/actions";
 import { actionId, parseActionId } from "./waste/card";
 import { createUserLookup, type Db } from "./users";
 import type { FeedbackScorer } from "./waste/feedback";
@@ -477,10 +487,101 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         },
       ]);
 
-      // A second tap on the same card saves nothing more.
+      // A double tap saves nothing more and leaves the "Tersimpan ✓" card alone.
       const again = asReply(await handle(tap(button(card, "Simpan"))));
-      expect(again.text).toBe(EXPIRED_TEXT);
+      expect(again).toEqual({ type: "reply", text: ALREADY_SAVED_TEXT, edits: [] });
       expect(await entriesOfRun(run!.id)).toHaveLength(2);
+    });
+
+    it("saves nothing when one line fails, and lets the user tap Simpan again", async () => {
+      const esTeh = {
+        id: "00000000-0000-4000-8000-000000000109",
+        outletId: ids.outletA,
+        name: "Es Teh",
+        category: "drink",
+        costPerPortion: "3000",
+        portionWeightKg: "0.250",
+        foodCategory: "other",
+      };
+      await db.insert(menuItems).values(esTeh);
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({
+          lines: [
+            { item_id: ids.nasi, portion_count: 1 },
+            { item_id: esTeh.id, portion_count: 2 },
+          ],
+          cause: "over_prep",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, observer);
+      const card = await handle(photoMessage(), io);
+      const traceId = observer.runs[0]!.traceId;
+      const entriesOfTrace = () =>
+        db
+          .select({ id: wasteEntries.id })
+          .from(wasteEntries)
+          .innerJoin(agentRuns, eq(agentRuns.id, wasteEntries.runId))
+          .where(eq(agentRuns.traceId, traceId));
+
+      // Es Teh leaves the menu before Simpan, so log_waste rejects the second line.
+      await db.delete(menuItems).where(eq(menuItems.id, esTeh.id));
+      const failed = asReply(await handle(tap(button(card, "Simpan"))));
+      expect(failed.text).toBe(SAVE_FAILED_TEXT);
+      expect(failed.edits ?? []).toEqual([]);
+      expect(await entriesOfTrace()).toEqual([]);
+
+      await db.insert(menuItems).values(esTeh);
+      const saved = await handle(tap(button(card, "Simpan")));
+      expect(editOf(saved).text).toContain("Tersimpan ✓");
+      expect(await entriesOfTrace()).toHaveLength(2);
+      // The retry reuses the photo and the run instead of writing them again.
+      expect(photos.saved).toHaveLength(1);
+      expect(await db.select().from(agentRuns).where(eq(agentRuns.traceId, traceId))).toHaveLength(
+        1,
+      );
+    });
+
+    it("does not log twice when a save committed but its reply was lost", async () => {
+      // log_waste saves, then the reply is lost once (e.g. a dropped HTTP connection).
+      let loseReply = true;
+      const servers = mcp.servers.map((server) => ({
+        ...server,
+        tools: server.tools.map((tool) =>
+          tool.mcp.remoteName !== "log_waste"
+            ? tool
+            : {
+                ...tool,
+                async call(args: unknown, context?: ToolCallContext) {
+                  const result = await tool.call(args, context);
+                  if (loseReply) {
+                    loseReply = false;
+                    throw new Error("connection reset");
+                  }
+                  return result;
+                },
+              },
+        ),
+      })) as typeof mcp.servers;
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, observer, { servers });
+      const card = await handle(message("nasi 2 porsi basi"));
+      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(SAVE_FAILED_TEXT);
+      expect(editOf(await handle(tap(button(card, "Simpan")))).text).toContain("Tersimpan ✓");
+
+      const runs = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+      expect(runs).toHaveLength(1);
+      expect(runs[0]!.status).toBe("succeeded");
+      expect(await entriesOfRun(runs[0]!.id)).toHaveLength(1);
     });
 
     it("never saves an unsure photo guess until the user supplies the item and portions", async () => {
@@ -565,8 +666,12 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       // The model was told about the open guess.
       expect(model.requests[2]!.instructions).toContain("Open waste guess: Nasi Putih");
       expect(revised.edits).toEqual([{ messageId: "card-10", text: REPLACED_CARD_TEXT }]);
-      // The replaced card's buttons are dead.
-      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(EXPIRED_TEXT);
+      // The replaced card's buttons are dead, and its "Diganti" text stays.
+      expect(await handle(tap(button(card, "Simpan")))).toEqual({
+        type: "reply",
+        text: ALREADY_REPLACED_TEXT,
+        edits: [],
+      });
 
       await handle(tap(button(revised, "Simpan")));
       const [run] = await db
@@ -624,7 +729,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       const handle = handler(model, new RecordingObserver());
       const first = await handle(photoMessage(), io);
       expect(editOf(await handle(tap(button(first, "Batal")))).text).toBe("Dibatalkan.");
-      expect(asReply(await handle(tap(button(first, "Simpan")))).text).toBe(EXPIRED_TEXT);
+      expect(await handle(tap(button(first, "Simpan")))).toEqual({
+        type: "reply",
+        text: ALREADY_CANCELLED_TEXT,
+        edits: [],
+      });
 
       const second = await handle(photoMessage(), io);
       clock = new Date(clock.getTime() + 31 * 60 * 1000);
@@ -659,6 +768,27 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       );
       expect(model.lastToolResult()).toContain("not on this outlet's menu");
       expect(result).toEqual({ type: "reply", text: "Soto tidak ada di menu outlet ini." });
+    });
+
+    it("refuses a guess whose portions would weigh more than an entry can hold", async () => {
+      await db.insert(menuItems).values({
+        id: "00000000-0000-4000-8000-00000000010a",
+        outletId: ids.outletA,
+        name: "Tumpeng Besar",
+        category: "main",
+        costPerPortion: "500000",
+        portionWeightKg: "15.000",
+        foodCategory: "rice",
+      });
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: "00000000-0000-4000-8000-00000000010a", portion_count: 10000 }],
+        }),
+        { text: "Jumlahnya terlalu besar." },
+      ]);
+      const result = await handler(model, new RecordingObserver())(message("tumpeng 10000 porsi"));
+      expect(model.lastToolResult()).toContain("more than");
+      expect(result).toEqual({ type: "reply", text: "Jumlahnya terlalu besar." });
     });
 
     it("answers other attachments with a fixed reply, without the model", async () => {

@@ -80,36 +80,67 @@ describe("kitchen-mcp protocol, without a database", () => {
       "both portions and weight",
       {
         outlet_id: A,
-        item_id: ids.nasi,
+        lines: [{ item_id: ids.nasi, portion_count: 1, weight_kg: 1 }],
+
         cause: "spoilage",
         source: "text",
-        portion_count: 1,
-        weight_kg: 1,
       },
       /exactly one of portion_count or weight_kg/,
     ],
     [
       "log_waste",
       "neither portions nor weight",
-      { outlet_id: A, item_id: ids.nasi, cause: "spoilage", source: "text" },
+      { outlet_id: A, lines: [{ item_id: ids.nasi }], cause: "spoilage", source: "text" },
       /exactly one of portion_count or weight_kg/,
     ],
     [
       "log_waste",
+      "no lines",
+      { outlet_id: A, lines: [], cause: "spoilage", source: "text" },
+      /lines/,
+    ],
+    [
+      "log_waste",
+      "more than five lines",
+      {
+        outlet_id: A,
+        lines: Array.from({ length: 6 }, () => ({ item_id: ids.nasi, portion_count: 1 })),
+        cause: "spoilage",
+        source: "text",
+      },
+      /lines/,
+    ],
+    [
+      "log_waste",
       "an unknown cause",
-      { outlet_id: A, item_id: ids.nasi, cause: "dropped", source: "text", portion_count: 1 },
+      {
+        outlet_id: A,
+        lines: [{ item_id: ids.nasi, portion_count: 1 }],
+        cause: "dropped",
+        source: "text",
+      },
       /cause/,
     ],
     [
       "log_waste",
       "zero portions",
-      { outlet_id: A, item_id: ids.nasi, cause: "spoilage", source: "text", portion_count: 0 },
+      {
+        outlet_id: A,
+        lines: [{ item_id: ids.nasi, portion_count: 0 }],
+        cause: "spoilage",
+        source: "text",
+      },
       /portion_count/,
     ],
     [
       "log_waste",
       "a negative weight",
-      { outlet_id: A, item_id: ids.nasi, cause: "spoilage", source: "text", weight_kg: -1 },
+      {
+        outlet_id: A,
+        lines: [{ item_id: ids.nasi, weight_kg: -1 }],
+        cause: "spoilage",
+        source: "text",
+      },
       /weight_kg/,
     ],
     [
@@ -117,10 +148,11 @@ describe("kitchen-mcp protocol, without a database", () => {
       "confidence above 1",
       {
         outlet_id: A,
-        item_id: ids.nasi,
+        lines: [{ item_id: ids.nasi, portion_count: 1 }],
+
         cause: "spoilage",
         source: "photo",
-        portion_count: 1,
+
         confidence: 1.5,
       },
       /confidence/,
@@ -130,10 +162,11 @@ describe("kitchen-mcp protocol, without a database", () => {
       "a photo path with ..",
       {
         outlet_id: A,
-        item_id: ids.nasi,
+        lines: [{ item_id: ids.nasi, portion_count: 1 }],
+
         cause: "spoilage",
         source: "photo",
-        portion_count: 1,
+
         photo_path: "../etc/passwd",
       },
       /photo_path must be a relative path/,
@@ -143,10 +176,11 @@ describe("kitchen-mcp protocol, without a database", () => {
       "an absolute photo path",
       {
         outlet_id: A,
-        item_id: ids.nasi,
+        lines: [{ item_id: ids.nasi, portion_count: 1 }],
+
         cause: "spoilage",
         source: "photo",
-        portion_count: 1,
+
         photo_path: "/data/photos/x.jpg",
       },
       /photo_path must be a relative path/,
@@ -156,10 +190,11 @@ describe("kitchen-mcp protocol, without a database", () => {
       "a photo URL",
       {
         outlet_id: A,
-        item_id: ids.nasi,
+        lines: [{ item_id: ids.nasi, portion_count: 1 }],
+
         cause: "spoilage",
         source: "photo",
-        portion_count: 1,
+
         photo_path: "https://api.telegram.org/file/bot123/x.jpg",
       },
       /photo_path must be a relative path/,
@@ -169,10 +204,11 @@ describe("kitchen-mcp protocol, without a database", () => {
       "a time without offset",
       {
         outlet_id: A,
-        item_id: ids.nasi,
+        lines: [{ item_id: ids.nasi, portion_count: 1 }],
+
         cause: "spoilage",
         source: "text",
-        portion_count: 1,
+
         logged_at: "yesterday",
       },
       /logged_at/,
@@ -266,12 +302,15 @@ describe.skipIf(!testDbUrl)("kitchen-mcp protocol, with Postgres", () => {
   });
 
   it("log_waste and update_entry", async () => {
-    const { entry } = await call("log_waste", {
+    const {
+      entries: [entry],
+    } = await call("log_waste", {
       outlet_id: A,
-      item_id: ids.rendang,
+      lines: [{ item_id: ids.rendang, portion_count: 2 }],
+
       cause: "plate_waste",
       source: "photo",
-      portion_count: 2,
+
       photo_path: `${A}/abc.jpg`,
       confidence: 0.7,
     });

@@ -29,7 +29,8 @@ export async function createPhotoStore(dir: string | undefined): Promise<PhotoSt
     async save(relativePath, data) {
       const file = join(dir, relativePath);
       await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, data, { flag: "wx" });
+      // Overwrites: the name is a fresh guess id, and a retry after a partial write must succeed.
+      await writeFile(file, data);
       return relativePath;
     },
   };

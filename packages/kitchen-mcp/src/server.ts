@@ -82,7 +82,7 @@ export function createKitchenServer(db: Db) {
     {
       title: "Log waste",
       description:
-        "Record a confirmed waste entry. Give exactly one of portion_count (converted to kg with the item's portion weight) or weight_kg. Only call after the staff member confirmed the item, cause and amount.",
+        "Record confirmed waste: one entry per line (up to 5), sharing cause, source, photo and time. Each line gives exactly one of portion_count (converted to kg with the item's portion weight) or weight_kg. All lines are saved together, or none if any is rejected. Only call after the staff member confirmed the guess.",
       inputSchema: s.logWasteInput,
       outputSchema: s.logWasteOutput,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

@@ -49,6 +49,11 @@ export type WasteGuess = {
   original: GuessSnapshot;
   /** Lens trace of the turn that produced this version of the guess. */
   traceId?: string | undefined;
+  /** Set while a Simpan is being saved, so a second tap cannot save the guess again. */
+  saving?: boolean | undefined;
+  /** Written on the first Simpan and reused if the user retries after a failed save. */
+  photoPath?: string | undefined;
+  runId?: string | undefined;
   /** The Telegram message showing this guess's card, once sent. */
   cardMessageId?: string | undefined;
   createdAtMs: number;
@@ -104,43 +109,69 @@ export function changedFields(original: GuessSnapshot, saved: GuessSnapshot): st
   return [...fields].sort();
 }
 
-/** In-memory waste guesses, by id. Expired guesses read as missing; a restart loses them all. */
+/** How a guess left the store, remembered so a late tap on its card gets the right answer. */
+export type GuessOutcome = "saved" | "cancelled" | "replaced";
+
+/**
+ * In-memory waste guesses, by id. Expired guesses read as missing; a restart loses them all.
+ * Settled guesses (saved, cancelled, replaced) are remembered for the same time as open ones.
+ */
 export class GuessStore {
   readonly #guesses = new Map<string, WasteGuess>();
+  readonly #settled = new Map<string, { outcome: GuessOutcome; atMs: number }>();
 
   constructor(
     private readonly now: () => Date,
     private readonly ttlMs = GUESS_TTL_MS,
   ) {}
 
-  #expired(guess: WasteGuess): boolean {
-    return this.now().getTime() - guess.createdAtMs >= this.ttlMs;
+  #isOld(sinceMs: number): boolean {
+    return this.now().getTime() - sinceMs >= this.ttlMs;
+  }
+
+  #prune(): void {
+    for (const [id, g] of this.#guesses) if (this.#isOld(g.createdAtMs)) this.#guesses.delete(id);
+    for (const [id, s] of this.#settled) if (this.#isOld(s.atMs)) this.#settled.delete(id);
   }
 
   add(guess: WasteGuess): void {
-    for (const [id, g] of this.#guesses) if (this.#expired(g)) this.#guesses.delete(id);
+    this.#prune();
+    this.#settled.delete(guess.id);
     this.#guesses.set(guess.id, guess);
   }
 
   get(id: string): WasteGuess | undefined {
     const guess = this.#guesses.get(id);
     if (!guess) return undefined;
-    if (this.#expired(guess)) {
+    if (this.#isOld(guess.createdAtMs)) {
       this.#guesses.delete(id);
       return undefined;
     }
     return guess;
   }
 
+  /** Removes a guess that was never shown (e.g. from a failed turn), leaving no trace. */
   delete(id: string): void {
     this.#guesses.delete(id);
+  }
+
+  /** Closes a guess and remembers why. */
+  settle(id: string, outcome: GuessOutcome): void {
+    this.#guesses.delete(id);
+    this.#settled.set(id, { outcome, atMs: this.now().getTime() });
+  }
+
+  /** Why a guess was closed, if it was closed recently. */
+  outcomeOf(id: string): GuessOutcome | undefined {
+    const settled = this.#settled.get(id);
+    return settled && !this.#isOld(settled.atMs) ? settled.outcome : undefined;
   }
 
   /** The newest unexpired guess in a chat: the one a follow-up text message may correct. */
   openIn(chatId: string): WasteGuess | undefined {
     let latest: WasteGuess | undefined;
     for (const g of this.#guesses.values()) {
-      if (g.chatId !== chatId || this.#expired(g)) continue;
+      if (g.chatId !== chatId || this.#isOld(g.createdAtMs)) continue;
       if (!latest || g.createdAtMs >= latest.createdAtMs) latest = g;
     }
     return latest;

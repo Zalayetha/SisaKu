@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createTool } from "@anvia/core";
-import { WASTE_CAUSES } from "@sisaku/db";
+import { MAX_WASTE_WEIGHT_KG, WASTE_CAUSES } from "@sisaku/db";
 import { z } from "zod";
 import {
   isUnsure,
@@ -39,7 +39,7 @@ const input = z.object({
         weight_kg: z
           .number()
           .positive()
-          .max(500)
+          .max(MAX_WASTE_WEIGHT_KG)
           .optional()
           .describe("Only when the user typed a weight; never estimated from a photo"),
       }),
@@ -94,6 +94,15 @@ export function createProposeWasteTool(ctx: ProposeContext) {
           return fail(`item_id ${line.item_id} is not on this outlet's menu; use get_menu`);
         if ((line.portion_count === undefined) === (line.weight_kg === undefined)) {
           return fail("each line needs exactly one of portion_count or weight_kg");
+        }
+        // log_waste would reject this line on Simpan, so refuse it now instead.
+        // Rounded to grams, as kitchen-mcp stores and checks it.
+        const kg =
+          Math.round((line.weight_kg ?? line.portion_count! * item.portionWeightKg) * 1000) / 1000;
+        if (kg > MAX_WASTE_WEIGHT_KG) {
+          return fail(
+            `${item.name}: ${kg} kg is more than one entry can hold (${MAX_WASTE_WEIGHT_KG} kg)`,
+          );
         }
         lines.push(
           line.portion_count !== undefined
@@ -150,8 +159,11 @@ export function createProposeWasteTool(ctx: ProposeContext) {
         createdAtMs: ctx.messageTime.getTime(),
       };
       if (base) {
-        ctx.store.delete(base.id);
-        if (base !== ctx.turn.guess) ctx.turn.replaced = base;
+        if (base === ctx.turn.guess) ctx.store.delete(base.id);
+        else {
+          ctx.store.settle(base.id, "replaced");
+          ctx.turn.replaced = base;
+        }
       }
       ctx.store.add(guess);
       ctx.turn.guess = guess;
