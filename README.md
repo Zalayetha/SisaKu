@@ -22,6 +22,7 @@ docker compose up -d   # Postgres, Redis, Qdrant
 | `pnpm test`         | Vitest across the repo                     |
 | `pnpm build`        | Compile every workspace package to `dist/` |
 | `pnpm test:e2e`     | Playwright tests in `e2e/` (root)          |
+| `pnpm copilot`      | Run the Kitchen Copilot Telegram bot       |
 
 The pre-commit hook runs `pnpm lint` and `pnpm typecheck`. CI (`.github/workflows/ci.yml`) runs install, lint, format check, typecheck, test, and build on every push, plus a separate Playwright e2e job.
 
@@ -30,4 +31,5 @@ Decisions and product notes are in `docs/` (see `AGENTS.md` for the index and fo
 ## Layout
 
 - `apps/api`, `apps/worker`: Hono API and BullMQ worker (placeholders for now)
+- `apps/copilot`: the Kitchen Copilot Telegram bot (polling). Needs `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, `DATABASE_URL` and the three `ANVIA_LENS_*` settings; it spawns both MCP servers over stdio unless `KITCHEN_MCP_URL` / `IMPACT_MCP_URL` are set (ADR 0012). A sender is answered only if their Telegram ID is in `users.telegram_user_id`.
 - `packages/shared`, `packages/db`, `packages/kitchen-mcp`, `packages/impact-mcp`, `packages/agents`: placeholders for the shared code, Drizzle schema, the two MCP servers, and the agents

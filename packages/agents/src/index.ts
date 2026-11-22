@@ -1,2 +1,7 @@
-/** Placeholder entry point for @sisaku/agents. Real code lands in later issues. */
-export const packageName = "@sisaku/agents";
+export * from "./allowlist";
+export * from "./copilot";
+export * from "./instructions";
+export * from "./lens";
+export * from "./mcp";
+export * from "./model";
+export * from "./scoped-tools";

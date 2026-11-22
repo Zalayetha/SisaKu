@@ -2,6 +2,24 @@
 
 SisaKu helps commercial kitchens in Indonesia cook the right amount, log what is binned, and report its cost and climate impact.
 
+## Kitchens and people
+
+**Outlet**:
+One kitchen location (a restaurant or catering site). Everything a user sees and does is scoped to their one outlet; in the MVP even an owner belongs to exactly one outlet.
+_Avoid_: Store, branch, kitchen (when meaning the location)
+
+**Staff**, **Manager**, **Owner**:
+The three roles a user has at their outlet. Staff log waste and ask questions; managers and owners can also give approvals.
+_Avoid_: Admin, employee
+
+**Kitchen Copilot**:
+The conversational agent people talk to on Telegram, in a direct chat. It answers only users registered to an outlet, and acts only when someone messages it.
+_Avoid_: Bot, chatbot, assistant
+
+**Nightly pipeline**:
+The agent that runs on its own every night per outlet and produces the morning brief. Nobody prompts it.
+_Avoid_: Cron agent, batch job
+
 ## Waste
 
 **Waste entry**:

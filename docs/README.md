@@ -15,7 +15,8 @@ docs/
 │   ├── 0008-use-composite-foreign-keys-for-outlet-item-pairing.md
 │   ├── 0009-kitchen-mcp-tool-design.md
 │   ├── 0010-store-waste-photos-on-a-vps-volume.md
-│   └── 0011-impact-mcp-approval-boundary-and-co2e-method.md
+│   ├── 0011-impact-mcp-approval-boundary-and-co2e-method.md
+│   └── 0012-kitchen-copilot-runtime-boundary.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

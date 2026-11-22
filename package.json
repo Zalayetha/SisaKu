@@ -17,6 +17,7 @@
     "format:check": "oxfmt --check .",
     "prepare": "husky",
     "test:e2e": "playwright test",
+    "copilot": "pnpm --filter @sisaku/copilot start",
     "db:migrate": "pnpm --filter @sisaku/db db:migrate",
     "db:rollback": "pnpm --filter @sisaku/db db:rollback",
     "db:reset": "pnpm --filter @sisaku/db db:reset",
