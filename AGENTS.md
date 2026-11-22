@@ -92,6 +92,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0011: impact-mcp approval boundary and CO₂e method](decision/0011-impact-mcp-approval-boundary-and-co2e-method.md)
 - [0012: Kitchen Copilot runtime boundary](decision/0012-kitchen-copilot-runtime-boundary.md)
 - [0013: Self-host Anvia Lens as a separate Compose project](decision/0013-self-host-anvia-lens.md)
+- [0014: Waste logging confirmation gate](decision/0014-waste-logging-confirmation-gate.md)
 
 ### Product
 

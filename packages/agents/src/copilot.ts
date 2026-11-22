@@ -13,6 +13,7 @@ export type CopilotAgentOptions = {
   role: CopilotRole;
   today: string;
   timezone: string;
+  openWasteGuess?: string | undefined;
   maxTurns?: number;
 };
 

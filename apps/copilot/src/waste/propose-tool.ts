@@ -1,0 +1,165 @@
+import { randomUUID } from "node:crypto";
+import { createTool } from "@anvia/core";
+import { WASTE_CAUSES } from "@sisaku/db";
+import { z } from "zod";
+import {
+  isUnsure,
+  MAX_CANDIDATES,
+  MAX_LINES,
+  snapshot,
+  type GuessLine,
+  type GuessStore,
+  type MenuItem,
+  type WasteGuess,
+} from "./guess";
+
+export const PROPOSE_TOOL_NAME = "propose_waste_entry";
+
+/** What one chat turn knows when the model proposes a waste guess. */
+export type ProposeContext = {
+  user: { id: string; outletId: string; timezone: string };
+  chatId: string;
+  /** When the message arrived; the default waste time. */
+  messageTime: Date;
+  photo?: { data: Buffer; mediaType: string } | undefined;
+  store: GuessStore;
+  loadMenu: () => Promise<readonly MenuItem[]>;
+  /** Filled in by the tool: the guess to show after this turn, and the older one it replaces. */
+  turn: { guess?: WasteGuess; replaced?: WasteGuess };
+};
+
+const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+const input = z.object({
+  lines: z
+    .array(
+      z.object({
+        item_id: z.string().describe("Menu item id from get_menu"),
+        portion_count: z.number().int().positive().max(10000).optional(),
+        weight_kg: z
+          .number()
+          .positive()
+          .max(500)
+          .optional()
+          .describe("Only when the user typed a weight; never estimated from a photo"),
+      }),
+    )
+    .max(MAX_LINES)
+    .optional()
+    .describe("One line per distinct menu item, each with portion_count or weight_kg"),
+  candidate_item_ids: z
+    .array(z.string())
+    .max(MAX_CANDIDATES)
+    .optional()
+    .describe("For a photo with confidence below 0.6: up to 3 likely menu item ids"),
+  cause: z.enum(WASTE_CAUSES).optional().describe("Only if the user stated or implied it"),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("For a photo: how sure you are of the items and portions, 0 to 1"),
+  corrects_open_guess: z
+    .boolean()
+    .optional()
+    .describe("true when the user's message corrects the open waste guess; it is then replaced"),
+  logged_at: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("When the waste happened, only if the user named a time; defaults to now"),
+});
+
+type Result = { ok: true; shown_to_user: true; note: string } | { ok: false; error: string };
+
+const fail = (error: string): Result => ({ ok: false, error });
+
+/**
+ * The model's only way to log waste: it stores a waste guess and the turn shows its card. Saving
+ * happens later, in fixed code, when the user taps Simpan (ADR 0014).
+ */
+export function createProposeWasteTool(ctx: ProposeContext) {
+  return createTool({
+    name: PROPOSE_TOOL_NAME,
+    description:
+      "Show the user a waste guess (menu items with portions, cause, time) as a card with Simpan / Ubah / Batal buttons. Nothing is saved until the user taps Simpan. Call get_menu first for item ids.",
+    inputSchema: input,
+    async handler(args): Promise<Result> {
+      const menu = await ctx.loadMenu();
+      const byId = new Map(menu.map((m) => [m.id, m]));
+
+      const lines: GuessLine[] = [];
+      for (const line of args.lines ?? []) {
+        const item = byId.get(line.item_id);
+        if (!item)
+          return fail(`item_id ${line.item_id} is not on this outlet's menu; use get_menu`);
+        if ((line.portion_count === undefined) === (line.weight_kg === undefined)) {
+          return fail("each line needs exactly one of portion_count or weight_kg");
+        }
+        lines.push(
+          line.portion_count !== undefined
+            ? { item, portionCount: line.portion_count }
+            : { item, weightKg: line.weight_kg! },
+        );
+      }
+      const candidates: MenuItem[] = [];
+      for (const id of args.candidate_item_ids ?? []) {
+        const item = byId.get(id);
+        if (!item) return fail(`candidate ${id} is not on this outlet's menu; use get_menu`);
+        candidates.push(item);
+      }
+
+      let loggedAt = ctx.messageTime.toISOString();
+      if (args.logged_at) {
+        if (Date.parse(args.logged_at) > ctx.messageTime.getTime() + FUTURE_TOLERANCE_MS) {
+          return fail("logged_at is in the future");
+        }
+        loggedAt = new Date(args.logged_at).toISOString();
+      }
+
+      // A text message may correct the chat's open guess; a new photo always starts a new one.
+      const correcting = args.corrects_open_guess === true && !ctx.photo;
+      const base = ctx.turn.guess ?? (correcting ? ctx.store.openIn(ctx.chatId) : undefined);
+      const fromPhoto = base ? base.source === "photo" : ctx.photo !== undefined;
+      const confidence = fromPhoto ? (base?.confidence ?? args.confidence ?? 0) : undefined;
+      // Any correction typed by the user counts as supplied by a person.
+      const userSupplied = base !== undefined && !ctx.photo;
+
+      const draft = { lines, cause: args.cause ?? base?.cause, loggedAt, userSupplied, confidence };
+      if (!isUnsure(draft) && lines.length === 0) {
+        return fail("give at least one line, or candidate_item_ids for an unsure photo");
+      }
+      if (isUnsure(draft) && candidates.length === 0) {
+        candidates.push(...lines.map((l) => l.item).slice(0, MAX_CANDIDATES));
+      }
+
+      const guess: WasteGuess = {
+        id: randomUUID(),
+        userId: ctx.user.id,
+        outletId: ctx.user.outletId,
+        chatId: ctx.chatId,
+        timezone: ctx.user.timezone,
+        source: fromPhoto ? "photo" : "text",
+        photo: base ? base.photo : ctx.photo,
+        confidence,
+        userSupplied,
+        candidates,
+        lines,
+        cause: draft.cause,
+        loggedAt,
+        original: base ? base.original : snapshot(draft),
+        createdAtMs: ctx.messageTime.getTime(),
+      };
+      if (base) {
+        ctx.store.delete(base.id);
+        if (base !== ctx.turn.guess) ctx.turn.replaced = base;
+      }
+      ctx.store.add(guess);
+      ctx.turn.guess = guess;
+      return {
+        ok: true,
+        shown_to_user: true,
+        note: "The card with buttons is sent to the user. Reply with at most one short sentence.",
+      };
+    },
+  });
+}

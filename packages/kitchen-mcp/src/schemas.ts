@@ -64,6 +64,7 @@ export const logWasteInput = z
       .describe("Relative path of the saved photo inside the photo volume"),
     confidence: z.number().min(0).max(1).optional().describe("Vision model confidence, 0 to 1"),
     confirmed_by: uuid.optional().describe("users.id of the staff member who confirmed the entry"),
+    run_id: uuid.optional().describe("agent_runs.id of the Copilot turn that logged the entry"),
     logged_at: z.iso
       .datetime({ offset: true })
       .optional()
@@ -131,6 +132,7 @@ const wasteEntry = z.object({
   photo_path: z.string().nullable(),
   confidence: z.number().nullable(),
   confirmed_by: z.string().nullable(),
+  run_id: z.string().nullable().describe("agent_runs.id of the turn that logged it, if any"),
 });
 
 export const getSalesOutput = z.object({

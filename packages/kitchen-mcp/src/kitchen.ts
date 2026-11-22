@@ -1,5 +1,6 @@
 import { and, asc, between, eq, sql, type SQL } from "drizzle-orm";
 import {
+  agentRuns,
   menuItems,
   outlets,
   prepLogs,
@@ -84,6 +85,11 @@ function portionsToKg(portions: number, item: { id: string; portionWeightKg: num
   return kg;
 }
 
+async function requireRun(db: Db, runId: string) {
+  const [r] = await db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.id, runId));
+  if (!r) throw new KitchenError(`Unknown agent run ${runId}`);
+}
+
 async function getEntry(db: Db, outletId: string, id: string): Promise<WasteEntry> {
   const [e] = await db
     .select({
@@ -96,9 +102,10 @@ async function getEntry(db: Db, outletId: string, id: string): Promise<WasteEntr
       portionCount: wasteEntries.portionCount,
       cause: wasteEntries.cause,
       source: wasteEntries.source,
-      photoUrl: wasteEntries.photoUrl,
+      photoPath: wasteEntries.photoPath,
       confidence: wasteEntries.confidence,
       confirmedBy: wasteEntries.confirmedBy,
+      runId: wasteEntries.runId,
     })
     .from(wasteEntries)
     .innerJoin(menuItems, eq(menuItems.id, wasteEntries.itemId))
@@ -114,9 +121,10 @@ async function getEntry(db: Db, outletId: string, id: string): Promise<WasteEntr
     portion_count: e.portionCount,
     cause: e.cause,
     source: e.source,
-    photo_path: e.photoUrl,
+    photo_path: e.photoPath,
     confidence: e.confidence,
     confirmed_by: e.confirmedBy,
+    run_id: e.runId,
   };
 }
 
@@ -185,6 +193,7 @@ export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entry: W
   await requireOutlet(db, input.outlet_id);
   const item = await requireItem(db, input.outlet_id, input.item_id);
   if (input.confirmed_by) await requireUser(db, input.outlet_id, input.confirmed_by);
+  if (input.run_id) await requireRun(db, input.run_id);
   const loggedAt = input.logged_at ? checkLoggedAt(input.logged_at) : new Date();
   const weightKg =
     input.portion_count !== undefined
@@ -200,9 +209,10 @@ export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entry: W
       portionCount: input.portion_count ?? null,
       cause: input.cause,
       source: input.source,
-      photoUrl: input.photo_path ?? null, // column holds the relative photo path (ADR 0010)
+      photoPath: input.photo_path ?? null,
       confidence: input.confidence ?? null,
       confirmedBy: input.confirmed_by ?? null,
+      runId: input.run_id ?? null,
     })
     .returning({ id: wasteEntries.id });
   return { entry: await getEntry(db, input.outlet_id, row!.id) };

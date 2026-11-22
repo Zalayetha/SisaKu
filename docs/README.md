@@ -17,7 +17,8 @@ docs/
 │   ├── 0010-store-waste-photos-on-a-vps-volume.md
 │   ├── 0011-impact-mcp-approval-boundary-and-co2e-method.md
 │   ├── 0012-kitchen-copilot-runtime-boundary.md
-│   └── 0013-self-host-anvia-lens.md
+│   ├── 0013-self-host-anvia-lens.md
+│   └── 0014-waste-logging-confirmation-gate.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

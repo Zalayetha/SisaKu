@@ -1,4 +1,4 @@
-import { menuItems, wasteEntries } from "@sisaku/db";
+import { agentRuns, menuItems, wasteEntries } from "@sisaku/db";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -234,6 +234,24 @@ describe.skipIf(!testDbUrl)("kitchen tools", () => {
         confirmed_by: ids.staffA,
         logged_at: "2026-03-05T13:30:00.000Z",
       });
+    });
+
+    it("links the entry to the agent run that logged it, and rejects an unknown run", async () => {
+      const [run] = await db
+        .insert(agentRuns)
+        .values({ agent: "copilot", trigger: "telegram", traceId: "trace-1" })
+        .returning({ id: agentRuns.id });
+      const { entry } = await logWaste(db, {
+        ...base,
+        item_id: ids.nasi,
+        portion_count: 1,
+        run_id: run!.id,
+      });
+      expect(entry.run_id).toBe(run!.id);
+      await rejects(
+        logWaste(db, { ...base, item_id: ids.nasi, portion_count: 1, run_id: unknownId }),
+        /Unknown agent run/,
+      );
     });
 
     it("rejects another outlet's item or user, an unknown outlet and a future time", async () => {

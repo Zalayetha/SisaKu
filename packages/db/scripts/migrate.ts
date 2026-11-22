@@ -6,9 +6,11 @@ import pg from "pg";
 
 // up:    apply pending Drizzle migrations.
 // down:  revert the latest applied migration (drizzle/down/<tag>.down.sql).
+// down <tag>: revert newest-first until <tag> itself has been reverted.
 // reset: revert every applied migration and drop the drizzle schema (empty database).
 const dir = new URL("../drizzle/", import.meta.url);
 const direction = process.argv[2] ?? "up";
+const target = process.argv[3];
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is not set");
 const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", dir), "utf8")) as {
@@ -50,9 +52,12 @@ try {
   } else if (direction === "down") {
     const n = await applied();
     if (n === 0) throw new Error("nothing to revert");
-    if (n === 1) guardDestructive();
-    await revert(n - 1);
-    if (n === 1) await pool.query('DROP SCHEMA IF EXISTS "drizzle" CASCADE');
+    const stop = target ? journal.entries.findIndex((e) => e.tag === target) : n - 1;
+    if (stop < 0) throw new Error(`unknown migration ${target}`);
+    if (stop >= n) throw new Error(`${target} is not applied`);
+    if (stop === 0) guardDestructive();
+    for (let i = n - 1; i >= stop; i--) await revert(i);
+    if (stop === 0) await pool.query('DROP SCHEMA IF EXISTS "drizzle" CASCADE');
   } else if (direction === "reset") {
     guardDestructive();
     for (let n = await applied(); n > 0; n--) await revert(n - 1);

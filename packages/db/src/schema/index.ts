@@ -142,9 +142,10 @@ export const wasteEntries = pgTable(
     portionCount: integer("portion_count"),
     cause: text("cause").notNull(),
     source: wasteSource("source").notNull(),
-    photoUrl: text("photo_url"),
+    photoPath: text("photo_path"), // relative to the photos volume (ADR 0010)
     confidence: doublePrecision("confidence"),
     confirmedBy: uuid("confirmed_by").references(() => users.id),
+    runId: uuid("run_id").references(() => agentRuns.id), // the Copilot turn that logged it (ADR 0014)
   },
   (t) => [
     foreignKey({
