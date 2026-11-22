@@ -149,6 +149,10 @@ export function createProposeWasteTool(ctx: ProposeContext) {
         timezone: ctx.user.timezone,
         source: fromPhoto ? "photo" : "text",
         photo: base ? base.photo : ctx.photo,
+        // A failed Simpan's photo and run carry over, so saving the correction reuses them and
+        // finds entries the failed save may have committed (ADR 0014).
+        photoPath: base?.photoPath,
+        runId: base?.runId,
         confidence,
         userSupplied,
         candidates,

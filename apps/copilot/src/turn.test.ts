@@ -544,10 +544,10 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       );
     });
 
-    it("does not log twice when a save committed but its reply was lost", async () => {
-      // log_waste saves, then the reply is lost once (e.g. a dropped HTTP connection).
+    /** MCP servers whose log_waste saves but loses its first reply (e.g. a dropped connection). */
+    function serversLosingFirstSaveReply(): typeof mcp.servers {
       let loseReply = true;
-      const servers = mcp.servers.map((server) => ({
+      return mcp.servers.map((server) => ({
         ...server,
         tools: server.tools.map((tool) =>
           tool.mcp.remoteName !== "log_waste"
@@ -565,6 +565,10 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
               },
         ),
       })) as typeof mcp.servers;
+    }
+
+    it("does not log twice when a save committed but its reply was lost", async () => {
+      const servers = serversLosingFirstSaveReply();
       const observer = new RecordingObserver();
       const model = new ScriptedModel([
         propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
@@ -582,6 +586,44 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(runs).toHaveLength(1);
       expect(runs[0]!.status).toBe("succeeded");
       expect(await entriesOfRun(runs[0]!.id)).toHaveLength(1);
+    });
+
+    it("does not log twice when the user corrects a guess after a save whose reply was lost", async () => {
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 3 }],
+          cause: "spoilage",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 4 }],
+          cause: "spoilage",
+          corrects_open_guess: true,
+        }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, observer, { servers: serversLosingFirstSaveReply() });
+      const card = await handle(photoMessage(), io);
+      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(SAVE_FAILED_TEXT);
+      await handle(tap(button(card, "Ubah")));
+      const corrected = await handle(message("4 porsi"));
+      const saved = editOf(await handle(tap(button(corrected, "Simpan"))));
+
+      // The first save had gone through: its entry is shown as stored, and nothing is logged again.
+      expect(saved.text).toContain("Nasi Putih: 3 porsi");
+      const runs = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+      expect(runs).toHaveLength(1);
+      expect(runs[0]!.status).toBe("succeeded");
+      expect(await entriesOfRun(runs[0]!.id)).toHaveLength(1);
+      expect(
+        await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[1]!.traceId)),
+      ).toEqual([]);
+      expect(photos.saved).toHaveLength(1);
     });
 
     it("never saves an unsure photo guess until the user supplies the item and portions", async () => {
