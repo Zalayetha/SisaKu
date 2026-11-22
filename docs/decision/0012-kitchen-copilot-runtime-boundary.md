@@ -31,7 +31,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 
 **Runtime**
 
-- The agent definition (instructions, model, allowlist, MCP clients, Lens) lives in `packages/agents`. The long-running Telegram service is its own app, `apps/copilot`, with its own lifecycle and SIGTERM handling.
+- The agent definition (instructions, model, allowlist, MCP clients, Lens) lives in `packages/agents`. The long-running Telegram service is its own app, `apps/copilot`, with its own lifecycle and SIGTERM handling. Both run from source through tsx with no build step, like the MCP servers (ADR 0009), so `packages/agents` drops the tsup build from ADR 0004.
 - The bot receives messages by polling Telegram, both locally and on the VPS. A webhook needs a public HTTPS route, a secret and manual registration, which pays off only with several bot instances.
 - MCP servers: spawned over stdio locally and in tests; over HTTP with the bearer token in deploy, selected by environment (ADR 0009). HTTP connections keep the MCP client's SSRF protection (`strict`) unless `MCP_SSRF_PROTECTION=disabled`, which deploy sets because the servers are reached by private Docker service names.
 - Chat history is kept in memory, capped at about 20 messages per user, and lost on restart. Pending confirm and approval interactions are a separate store, decided in ZALS-16.
@@ -42,6 +42,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 **Tracing**
 
 - One Anvia Lens trace per chat turn, with a span per LLM call and tool call, labelled with the agent (`copilot`), outlet id, user id, role and Telegram chat id. No names or Telegram usernames.
+- Lens runs in `safe` capture mode: spans keep timings, tokens, cost, tool names and errors, but not prompt, reply, chat history or tool argument and result bodies. Users can type anything, including personal data, so message content never leaves the app. Evals that check tool arguments (the tool-call correctness eval) read them from the agent run in the eval harness, not from Lens.
 - Chat turns write no `agent_runs` rows until ZALS-16, when a turn first produces a stored waste entry.
 
 ## Consequences

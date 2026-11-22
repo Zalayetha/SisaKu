@@ -21,7 +21,8 @@ const service = createTelegramService({
     lookupUser: createUserLookup(db),
     servers: mcp.servers,
     model,
-    observer: lens.observer({ captureMode: "full" }),
+    // "safe": no prompt, reply or tool bodies in Lens (ADR 0012).
+    observer: lens.observer({ captureMode: "safe" }),
     history: new ChatHistory(20),
   }),
 });

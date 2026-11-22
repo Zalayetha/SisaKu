@@ -43,9 +43,6 @@ importers:
       '@anvia/channel':
         specifier: 0.4.2
         version: 0.4.2
-      '@anvia/channel-agent':
-        specifier: 0.4.3
-        version: 0.4.3(@anvia/core@1.21.0(zod@4.6.7))
       '@anvia/core':
         specifier: 1.21.0
         version: 1.21.0(zod@4.6.7)
@@ -65,9 +62,6 @@ importers:
       '@anvia/mcp':
         specifier: 1.2.7
         version: 1.2.7(@anvia/core@1.21.0(zod@4.6.7))
-      '@modelcontextprotocol/client':
-        specifier: 2.4.0
-        version: 2.4.0
       '@modelcontextprotocol/server':
         specifier: 2.4.0
         version: 2.4.0
@@ -189,12 +183,6 @@ importers:
   packages/shared: {}
 
 packages:
-
-  '@anvia/channel-agent@0.4.3':
-    resolution: {integrity: sha512-HN6Zz6dhpAPtQlaWb6Wgw1awWI0wlOU/zVNKh2q25Qw+7oYwI0ei891IQZP1jc58vxhoIkDMrMp16DiBttIGVA==}
-    engines: {node: '>=24'}
-    peerDependencies:
-      '@anvia/core': ^1.0.9
 
   '@anvia/channel@0.4.2':
     resolution: {integrity: sha512-ItPi0nMe+WlvOUZoC/+TsLHf3JjlPHGD3RJTmzwKHKMH7X4PnydrRL1dUdLDFHiMM4iSNRbX0qwzfWmzQCsRFw==}
@@ -2187,11 +2175,6 @@ packages:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
-
-  '@anvia/channel-agent@0.4.3(@anvia/core@1.21.0(zod@4.6.7))':
-    dependencies:
-      '@anvia/channel': 0.4.2
-      '@anvia/core': 1.21.0(zod@4.6.7)
 
   '@anvia/channel@0.4.2': {}
 

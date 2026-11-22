@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@anvia/channel": "0.4.2",
-    "@anvia/channel-agent": "0.4.3",
     "@anvia/core": "1.21.0",
     "@anvia/telegram": "0.3.3",
     "@sisaku/agents": "workspace:*",
@@ -19,7 +18,6 @@
   },
   "devDependencies": {
     "@anvia/mcp": "1.2.7",
-    "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/server": "2.4.0",
     "@sisaku/impact-mcp": "workspace:*",
     "@sisaku/kitchen-mcp": "workspace:*",
