@@ -90,6 +90,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0009: kitchen-mcp tool design](decision/0009-kitchen-mcp-tool-design.md)
 - [0010: Store waste photos on a VPS Docker volume](decision/0010-store-waste-photos-on-a-vps-volume.md)
 - [0011: impact-mcp approval boundary and CO₂e method](decision/0011-impact-mcp-approval-boundary-and-co2e-method.md)
+- [0012: Kitchen Copilot runtime boundary](decision/0012-kitchen-copilot-runtime-boundary.md)
 
 ### Product
 
