@@ -11,7 +11,7 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 
 **Instruction versions and their changelog**
 
-- `COPILOT_INSTRUCTIONS_VERSION` covers the instructions and every tool description the model sees. Every change bumps it and adds an entry, newest first, to `packages/agents/INSTRUCTIONS-CHANGELOG.md`. Each entry gives the date, issue, rule text, why, and the eval it should move. A test fails when the newest entry does not match the constant. `AGENTS.md` states the rule.
+- `COPILOT_INSTRUCTIONS_VERSION` covers the instructions and every tool description the model sees. Every change bumps it and adds an entry, newest first, to `packages/agents/INSTRUCTIONS-CHANGELOG.md`. Each entry gives the date, issue, a fingerprint of the instructions text, rule text, why, and the eval it should move. A test fails when the newest entry's version does not match the constant, or when its fingerprint (SHA-256 of `COPILOT_INSTRUCTIONS`, first 16 hex characters) does not match the current text, so an instruction edit without a new version cannot pass. Tool descriptions are not fingerprinted; their bumps stay by hand. `AGENTS.md` states the rule.
 - Each Copilot trace carries the version as Lens metadata. The `agent_runs` rows the Copilot writes (one per saved waste guess, ADR 0014) store it in the new nullable column `instructions_version` (migration 0004, with a down migration).
 
 ## Consequences

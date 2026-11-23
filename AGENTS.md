@@ -105,7 +105,9 @@ Add a link here whenever a document is created.
 
 Every change to an agent's instructions, or to a tool description the model sees, bumps
 `COPILOT_INSTRUCTIONS_VERSION` and adds an entry to `packages/agents/INSTRUCTIONS-CHANGELOG.md`
-in the same change (ADR 0015). The entry records the rule text, why, and the eval it should move.
+in the same change (ADR 0015). The entry records the rule text, why, the eval it should move, and
+the instructions fingerprint; the test in `packages/agents` fails until it is updated and prints
+the new value.
 
 ## Agent skills
 
