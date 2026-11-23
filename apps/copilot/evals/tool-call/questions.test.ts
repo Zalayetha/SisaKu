@@ -140,8 +140,11 @@ describe("tool-call eval dataset", () => {
       const args = resolveItems(c.expected.args ?? {}, menu) as Record<string, unknown>;
       expect(JSON.stringify(args)).not.toContain("outlet_id");
       const tool = TOOLS[c.expected.tool!]!;
-      const parsed = tool.schema.safeParse(merge(tool.filler, args));
+      const input = merge(tool.filler, args);
+      const parsed = tool.schema.safeParse(input);
       expect(parsed.error?.issues ?? []).toEqual([]);
+      // Zod drops unknown keys, so a misspelled key shows up as a difference here.
+      expect(parsed.data).toEqual(input);
     },
   );
 });
