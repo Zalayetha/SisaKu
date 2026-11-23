@@ -23,6 +23,7 @@ import {
   type ListEntriesOutput,
   type LogWasteInput,
   type QueryWasteInput,
+  type WasteFilters,
   type QueryWasteOutput,
   type UpdateEntryInput,
   type WasteEntry,
@@ -229,8 +230,6 @@ export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entries:
     entries: await Promise.all(rows.map((row) => getEntry(db, input.outlet_id, row.id))),
   };
 }
-
-type WasteFilters = QueryWasteInput["filters"];
 
 /** The waste entries of one outlet on its local days, optionally for one item or cause. */
 async function wasteWhere(db: Db, filters: WasteFilters) {

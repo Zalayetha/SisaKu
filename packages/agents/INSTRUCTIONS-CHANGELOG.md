@@ -20,7 +20,9 @@ version for those by hand.
   entry with list_entries (narrow it by day, item or cause), then update_entry with its id. If
   several entries could match, ask the user which one."
 - Added tool: `list_entries` (kitchen-mcp, on the allowlist): single waste entries with ids,
-  newest first, at most 20, with `truncated`.
+  newest first, at most 20, with `truncated`. Its input is the same filters object as
+  `query_waste`'s `filters`, so `query_waste`'s `item_id` also gains the description "Only this
+  menu item".
 - Why: query_waste returns totals without entry ids, so the model had no way to find the id
   update_entry needs.
 - Eval to move: tool-call correctness (the correction case now expects `list_entries` first).

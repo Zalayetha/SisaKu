@@ -83,25 +83,8 @@ export const logWasteInput = z.object({
     .describe("When the waste happened (ISO 8601 with offset); defaults to now"),
 });
 
-export const queryWasteInput = z.object({
-  filters: z
-    .object({
-      outlet_id: uuid,
-      from: isoDate.describe("First local day of the outlet, inclusive (YYYY-MM-DD)"),
-      to: isoDate.describe("Last local day of the outlet, inclusive (YYYY-MM-DD)"),
-      item_id: uuid.optional(),
-      cause: cause.optional(),
-    })
-    .refine((v) => v.from <= v.to, { message: "from must be on or before to", path: ["to"] }),
-  group_by: z
-    .enum(["item", "cause", "day", "none"])
-    .describe('How to group the totals; "none" returns one total row'),
-});
-
-/** Most entries one list_entries call returns, newest first. */
-export const MAX_LISTED_ENTRIES = 20;
-
-export const listEntriesInput = z
+/** Which waste entries a read covers: shared by query_waste and list_entries. */
+export const wasteFilters = z
   .object({
     outlet_id: uuid,
     from: isoDate.describe("First local day of the outlet, inclusive (YYYY-MM-DD)"),
@@ -110,6 +93,18 @@ export const listEntriesInput = z
     cause: cause.optional(),
   })
   .refine((v) => v.from <= v.to, { message: "from must be on or before to", path: ["to"] });
+
+export const queryWasteInput = z.object({
+  filters: wasteFilters,
+  group_by: z
+    .enum(["item", "cause", "day", "none"])
+    .describe('How to group the totals; "none" returns one total row'),
+});
+
+/** Most entries one list_entries call returns, newest first. */
+export const MAX_LISTED_ENTRIES = 20;
+
+export const listEntriesInput = wasteFilters;
 
 export const updateEntryInput = z.object({
   outlet_id: uuid,
@@ -233,6 +228,7 @@ export type GetSalesInput = z.infer<typeof getSalesInput>;
 export type GetMenuInput = z.infer<typeof getMenuInput>;
 export type GetPrepLogInput = z.infer<typeof getPrepLogInput>;
 export type LogWasteInput = z.infer<typeof logWasteInput>;
+export type WasteFilters = z.infer<typeof wasteFilters>;
 export type QueryWasteInput = z.infer<typeof queryWasteInput>;
 export type UpdateEntryInput = z.infer<typeof updateEntryInput>;
 export type ListEntriesInput = z.infer<typeof listEntriesInput>;

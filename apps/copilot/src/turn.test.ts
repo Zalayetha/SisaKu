@@ -1126,10 +1126,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         model,
         new RecordingObserver(),
       )(message("rendang tanggal 2 itu basi, bukan sisa piring"));
-      // The listing gave the model the entry id it then corrected, for the sender's outlet only.
+      // The listing gave the model the entry id it then corrected. The model sent no outlet_id,
+      // so the echoed outlet shows the sender's outlet was filled in.
       const listing = JSON.stringify(model.requests[1]!.chatHistory.at(-1));
       expect(listing).toContain(ids.wasteRendangDay2);
-      expect(listing).not.toContain(ids.wasteRendangDay1);
+      expect(listing).toContain(ids.outletA);
       const [entry] = await db
         .select()
         .from(wasteEntries)
