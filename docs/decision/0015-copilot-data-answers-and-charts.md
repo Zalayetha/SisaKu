@@ -40,6 +40,13 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 - `COPILOT_INSTRUCTIONS_VERSION` covers the instructions and every tool description the model sees. Every change bumps it and adds an entry, newest first, to `packages/agents/INSTRUCTIONS-CHANGELOG.md`. Each entry gives the date, issue, a fingerprint of the instructions text, rule text, why, and the eval it should move. A test fails when the newest entry's version does not match the constant, or when its fingerprint (SHA-256 of `COPILOT_INSTRUCTIONS`, first 16 hex characters) does not match the current text, so an instruction edit without a new version cannot pass. Tool descriptions are not fingerprinted; their bumps stay by hand. `AGENTS.md` states the rule.
 - Each Copilot trace carries the version as Lens metadata. The `agent_runs` rows the Copilot writes (one per saved waste guess, ADR 0014) store it in the new nullable column `instructions_version` (migration 0004, with a down migration).
 
+**The eval dataset**
+
+- `apps/copilot/evals/tool-call/questions.json` holds 25 cases, about 60% in Bahasa Indonesia. Each case has `id`, `area`, `message`, `language`, `role`, `today` (the last day of the default mock data, 2026-04-01) and `expected: { tool, args }`.
+- The cases are split by area: waste totals 5, "why" spikes 4, sales 3, breakdowns 3, chart requests 2, CO₂e 2, prep log 1, text waste logging 2, correction 1, no tool 2.
+- `args` is a subset match. `outlet_id` is never listed. Items are written as `{item:<menu name>}` and resolved through `generateMockData`, so a generator change does not break the dataset (ADR 0006). `tool: null` means no tool call is right.
+- The dataset lives with the copilot app, not in `@sisaku/agents`, because `send_chart` and `propose_waste_entry` are app tools. A test validates every case against the real tool input schemas. Running the model over the dataset and the 90% bar in CI are later work.
+
 ## Consequences
 
 - With the menu in context, a data question's first call is the data tool itself, and one round trip is saved. The cost is one `get_menu` call and a few hundred tokens of menu in every turn.

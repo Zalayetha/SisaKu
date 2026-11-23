@@ -25,6 +25,7 @@
     "@modelcontextprotocol/server": "2.4.0",
     "@sisaku/impact-mcp": "workspace:*",
     "@sisaku/kitchen-mcp": "workspace:*",
+    "@sisaku/mock-data": "workspace:*",
     "tsx": "^4.19.0"
   }
 }
