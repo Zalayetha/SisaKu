@@ -1,0 +1,147 @@
+import { readFileSync } from "node:fs";
+import { COPILOT_TOOL_ALLOWLIST } from "@sisaku/agents";
+import { computeCo2eInput } from "@sisaku/impact-mcp";
+import {
+  getMenuInput,
+  getPrepLogInput,
+  getSalesInput,
+  listEntriesInput,
+  queryWasteInput,
+  updateEntryInput,
+} from "@sisaku/kitchen-mcp";
+import { generateMockData } from "@sisaku/mock-data";
+import { describe, expect, it } from "vitest";
+import type { ZodType } from "zod";
+import { CHART_TOOL_NAME, chartInput } from "../../src/charts/chart-tool";
+import { PROPOSE_TOOL_NAME, proposeInput } from "../../src/waste/propose-tool";
+
+type Case = {
+  id: string;
+  area: string;
+  message: string;
+  language: "id" | "en";
+  role: "staff" | "manager" | "owner";
+  today: string;
+  openWasteGuess?: string;
+  expected: { tool: string | null; args?: Record<string, unknown> };
+};
+type Dataset = { outlet: string; cases: Case[] };
+
+const dataset = JSON.parse(
+  readFileSync(new URL("./questions.json", import.meta.url), "utf8"),
+) as Dataset;
+
+const AREAS = {
+  waste_total: 5,
+  why_spike: 4,
+  sales: 3,
+  breakdown: 3,
+  chart: 2,
+  co2e: 2,
+  prep_log: 1,
+  waste_logging: 2,
+  correction: 1,
+  no_tool: 2,
+};
+
+// The real input schemas. `expected.args` is a subset, so it is merged over a minimal valid
+// call (`filler`) before parsing; `outlet_id` is always injected by the turn, never listed.
+const OUTLET = "00000000-0000-4000-8000-000000000000";
+const day = "2026-04-01";
+const TOOLS: Record<string, { schema: ZodType; filler: Record<string, unknown> }> = {
+  get_menu: { schema: getMenuInput, filler: { outlet_id: OUTLET } },
+  get_sales: { schema: getSalesInput, filler: { outlet_id: OUTLET, from: day, to: day } },
+  get_prep_log: { schema: getPrepLogInput, filler: { outlet_id: OUTLET, date: day } },
+  query_waste: {
+    schema: queryWasteInput,
+    filler: { filters: { outlet_id: OUTLET, from: day, to: day }, group_by: "none" },
+  },
+  list_entries: { schema: listEntriesInput, filler: { outlet_id: OUTLET, from: day, to: day } },
+  update_entry: {
+    schema: updateEntryInput,
+    filler: { outlet_id: OUTLET, id: OUTLET, patch: {} },
+  },
+  compute_co2e: {
+    schema: computeCo2eInput,
+    filler: { filters: { outlet_id: OUTLET, from: day, to: day } },
+  },
+  [PROPOSE_TOOL_NAME]: { schema: proposeInput, filler: {} },
+  [CHART_TOOL_NAME]: { schema: chartInput, filler: { kind: "waste_trend", from: day, to: day } },
+};
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+function merge(base: Record<string, unknown>, over: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    out[k] = isObject(v) && isObject(base[k]) ? merge(base[k], v) : v;
+  }
+  return out;
+}
+
+/** Replaces "{item:<menu name>}" with the item's id in the eval outlet's mock menu. */
+function resolveItems(value: unknown, menu: Map<string, string>): unknown {
+  if (typeof value === "string") {
+    const match = /^\{item:(.+)\}$/.exec(value);
+    if (!match) return value;
+    const id = menu.get(match[1]!);
+    if (!id) throw new Error(`${match[1]} is not on the eval outlet's menu`);
+    return id;
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveItems(v, menu));
+  if (isObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveItems(v, menu)]));
+  }
+  return value;
+}
+
+describe("tool-call eval dataset", () => {
+  const mock = generateMockData();
+  const outlet = mock.outlets.find((o) => o.name === dataset.outlet)!;
+  const menu = new Map(
+    mock.menuItems.filter((m) => m.outletId === outlet.id).map((m) => [m.name, m.id]),
+  );
+
+  it("has 25 cases with unique ids, in the agreed mix of areas and languages", () => {
+    expect(outlet).toBeDefined();
+    expect(dataset.cases).toHaveLength(25);
+    expect(new Set(dataset.cases.map((c) => c.id)).size).toBe(25);
+    const areas: Record<string, number> = {};
+    for (const c of dataset.cases) areas[c.area] = (areas[c.area] ?? 0) + 1;
+    expect(areas).toEqual(AREAS);
+    expect(dataset.cases.filter((c) => c.language === "id")).toHaveLength(15);
+    for (const c of dataset.cases) {
+      expect(["staff", "manager", "owner"]).toContain(c.role);
+      expect(c.today).toBe(mock.endDate);
+      expect(c.message.trim()).not.toBe("");
+    }
+  });
+
+  it("expects only tools the Copilot is offered, or no tool", () => {
+    const offered = new Set<string>([
+      ...COPILOT_TOOL_ALLOWLIST,
+      PROPOSE_TOOL_NAME,
+      CHART_TOOL_NAME,
+    ]);
+    for (const c of dataset.cases) {
+      if (c.expected.tool === null) {
+        expect(c.area, c.id).toBe("no_tool");
+        expect(c.expected.args, c.id).toBeUndefined();
+      } else {
+        expect(offered.has(c.expected.tool), c.id).toBe(true);
+      }
+    }
+  });
+
+  it.each(dataset.cases.filter((c) => c.expected.tool !== null).map((c) => [c.id, c] as const))(
+    "%s: expected arguments pass the tool's real input schema",
+    (_id, c) => {
+      const args = resolveItems(c.expected.args ?? {}, menu) as Record<string, unknown>;
+      expect(JSON.stringify(args)).not.toContain("outlet_id");
+      const tool = TOOLS[c.expected.tool!]!;
+      const parsed = tool.schema.safeParse(merge(tool.filler, args));
+      expect(parsed.error?.issues ?? []).toEqual([]);
+    },
+  );
+});
