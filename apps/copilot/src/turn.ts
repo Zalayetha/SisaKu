@@ -10,6 +10,7 @@ import type { AgentObserver } from "@anvia/core/observability";
 import type { McpServer } from "@anvia/core/mcp";
 import {
   callMcpTool,
+  COPILOT_INSTRUCTIONS_VERSION,
   COPILOT_TOOL_ALLOWLIST,
   createCopilotAgent,
   scopedTools,
@@ -222,6 +223,7 @@ export function createTurnHandler(deps: TurnDeps) {
             user_id: user.id,
             role: user.role,
             chat_id: chatId,
+            instructions_version: COPILOT_INSTRUCTIONS_VERSION,
           },
         },
       });

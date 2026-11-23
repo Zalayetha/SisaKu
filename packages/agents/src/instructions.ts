@@ -1,5 +1,11 @@
 export type CopilotRole = "staff" | "manager" | "owner";
 
+/**
+ * Version of the Copilot's instructions and of the tool descriptions the model sees. Bump it on
+ * every change and add an entry to INSTRUCTIONS-CHANGELOG.md, so eval results map to one prompt.
+ */
+export const COPILOT_INSTRUCTIONS_VERSION = "2026-11-22.1";
+
 export const COPILOT_INSTRUCTIONS = `You are the SisaKu Kitchen Copilot. You help the staff, managers and owners of one commercial kitchen in Indonesia (their outlet) understand what they cook, sell and throw away.
 
 Rules:

@@ -10,6 +10,7 @@ import {
 } from "@anvia/core";
 import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability";
 import { McpClient, McpClientGroup } from "@anvia/mcp";
+import { COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { agentRuns, menuItems, users, wasteEntries } from "@sisaku/db";
 import { createImpactServer } from "@sisaku/impact-mcp";
@@ -329,6 +330,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       user_id: ids.staffA,
       role: "manager",
       chat_id: `chat-${TELEGRAM_A}`,
+      instructions_version: COPILOT_INSTRUCTIONS_VERSION,
     });
     const labels = JSON.stringify(run!.start.trace);
     expect(labels).not.toContain("Budi");
@@ -464,7 +466,12 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(photos.saved).toEqual([{ path: `${ids.outletA}/${guessId}.jpg`, data: PHOTO }]);
       const trace1 = observer.runs[0]!.traceId;
       const [run] = await db.select().from(agentRuns).where(eq(agentRuns.traceId, trace1));
-      expect(run).toMatchObject({ agent: "copilot", trigger: "telegram", status: "succeeded" });
+      expect(run).toMatchObject({
+        agent: "copilot",
+        trigger: "telegram",
+        status: "succeeded",
+        instructionsVersion: COPILOT_INSTRUCTIONS_VERSION,
+      });
       const entries = await entriesOfRun(run!.id);
       expect(entries).toHaveLength(2);
       for (const e of entries) {
