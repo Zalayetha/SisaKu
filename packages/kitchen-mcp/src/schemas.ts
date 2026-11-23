@@ -36,7 +36,7 @@ export const getSalesInput = z
     outlet_id: uuid,
     from: isoDate.describe("First day, inclusive (YYYY-MM-DD)"),
     to: isoDate.describe(`Last day, inclusive (YYYY-MM-DD); at most ${MAX_SALES_RANGE_DAYS} days`),
-    item_id: uuid.optional().describe("Only this menu item (id from get_menu)"),
+    item_id: uuid.optional().describe("Only this menu item (its id)"),
   })
   .refine((v) => v.from <= v.to, { message: "from must be on or before to", path: ["to"] });
 
@@ -52,7 +52,7 @@ export const MAX_WASTE_LINES = 5;
 
 const wasteLine = z
   .object({
-    item_id: uuid.describe("Menu item id from get_menu"),
+    item_id: uuid.describe("Menu item id"),
     portion_count: portionCount
       .optional()
       .describe("Portions wasted; the server converts to kg with the item's portion weight"),
@@ -83,20 +83,28 @@ export const logWasteInput = z.object({
     .describe("When the waste happened (ISO 8601 with offset); defaults to now"),
 });
 
+/** Which waste entries a read covers: shared by query_waste and list_entries. */
+export const wasteFilters = z
+  .object({
+    outlet_id: uuid,
+    from: isoDate.describe("First local day of the outlet, inclusive (YYYY-MM-DD)"),
+    to: isoDate.describe("Last local day of the outlet, inclusive (YYYY-MM-DD)"),
+    item_id: uuid.optional().describe("Only this menu item"),
+    cause: cause.optional(),
+  })
+  .refine((v) => v.from <= v.to, { message: "from must be on or before to", path: ["to"] });
+
 export const queryWasteInput = z.object({
-  filters: z
-    .object({
-      outlet_id: uuid,
-      from: isoDate.describe("First local day of the outlet, inclusive (YYYY-MM-DD)"),
-      to: isoDate.describe("Last local day of the outlet, inclusive (YYYY-MM-DD)"),
-      item_id: uuid.optional(),
-      cause: cause.optional(),
-    })
-    .refine((v) => v.from <= v.to, { message: "from must be on or before to", path: ["to"] }),
+  filters: wasteFilters,
   group_by: z
     .enum(["item", "cause", "day", "none"])
     .describe('How to group the totals; "none" returns one total row'),
 });
+
+/** Most entries one list_entries call returns, newest first. */
+export const MAX_LISTED_ENTRIES = 20;
+
+export const listEntriesInput = wasteFilters;
 
 export const updateEntryInput = z.object({
   outlet_id: uuid,
@@ -191,14 +199,40 @@ export const queryWasteOutput = z.object({
   ),
 });
 
+export const listEntriesOutput = z.object({
+  outlet_id: uuid,
+  from: z.string(),
+  to: z.string(),
+  timezone: z.string(),
+  entries: z.array(
+    z.object({
+      id: uuid,
+      item_id: uuid,
+      item_name: z.string(),
+      logged_at: z.string(),
+      local_date: z.string().describe("The outlet-local day of logged_at"),
+      weight_kg: z.number(),
+      portion_count: z.number().int().nullable(),
+      cause: z.string(),
+      source: z.string(),
+    }),
+  ),
+  truncated: z
+    .boolean()
+    .describe(`true when more than ${MAX_LISTED_ENTRIES} entries matched; narrow the filters`),
+});
+
 export const updateEntryOutput = z.object({ before: wasteEntry, after: wasteEntry });
 
 export type GetSalesInput = z.infer<typeof getSalesInput>;
 export type GetMenuInput = z.infer<typeof getMenuInput>;
 export type GetPrepLogInput = z.infer<typeof getPrepLogInput>;
 export type LogWasteInput = z.infer<typeof logWasteInput>;
+export type WasteFilters = z.infer<typeof wasteFilters>;
 export type QueryWasteInput = z.infer<typeof queryWasteInput>;
 export type UpdateEntryInput = z.infer<typeof updateEntryInput>;
+export type ListEntriesInput = z.infer<typeof listEntriesInput>;
+export type ListEntriesOutput = z.infer<typeof listEntriesOutput>;
 export type WasteEntry = z.infer<typeof wasteEntry>;
 export type GetSalesOutput = z.infer<typeof getSalesOutput>;
 export type GetMenuOutput = z.infer<typeof getMenuOutput>;

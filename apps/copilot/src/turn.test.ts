@@ -12,7 +12,7 @@ import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability
 import { McpClient, McpClientGroup } from "@anvia/mcp";
 import { COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
-import { agentRuns, menuItems, users, wasteEntries } from "@sisaku/db";
+import { agentRuns, menuItems, sales, users, wasteEntries } from "@sisaku/db";
 import { createImpactServer } from "@sisaku/impact-mcp";
 import { createKitchenServer } from "@sisaku/kitchen-mcp";
 import { eq } from "drizzle-orm";
@@ -40,6 +40,7 @@ import {
   SAVE_FAILED_TEXT,
 } from "./waste/actions";
 import { actionId, parseActionId } from "./waste/card";
+import { createChartRenderer, type ChartRenderer, type ChartSpec } from "./charts/render";
 import { createUserLookup, type Db } from "./users";
 import type { FeedbackScorer } from "./waste/feedback";
 import { GuessStore } from "./waste/guess";
@@ -165,6 +166,21 @@ class FakePhotoStore implements PhotoStore {
   }
 }
 
+/** Stands in for the chart renderer: keeps every spec, returns fake PNG bytes. */
+class RecordingRenderer implements ChartRenderer {
+  readonly specs: ChartSpec[] = [];
+  constructor(private readonly failing = false) {}
+  async render(spec: ChartSpec) {
+    if (this.failing) throw new Error("resvg crashed");
+    this.specs.push(spec);
+    return Buffer.from("png");
+  }
+  /** The data rows of the latest chart. */
+  values() {
+    return (this.specs.at(-1)!.data as { values: unknown[] }).values;
+  }
+}
+
 /** Stands in for Lens scores. */
 class RecordingScorer implements FeedbackScorer {
   readonly scores: Parameters<FeedbackScorer["score"]>[0][] = [];
@@ -197,6 +213,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   let guesses: GuessStore;
   let photos: FakePhotoStore;
   let scorer: RecordingScorer;
+  let charts: RecordingRenderer;
 
   beforeAll(async () => {
     ({ db, pool } = await setupTestDb());
@@ -223,6 +240,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     guesses = new GuessStore(() => clock);
     photos = new FakePhotoStore();
     scorer = new RecordingScorer();
+    charts = new RecordingRenderer();
   });
 
   function handler(model: CompletionModel, observer: AgentObserver, extra: Partial<TurnDeps> = {}) {
@@ -235,6 +253,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       history,
       photos,
       scorer,
+      charts,
       guesses,
       now: () => clock,
       log: () => undefined,
@@ -274,8 +293,10 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       "get_menu",
       "get_prep_log",
       "get_sales",
+      "list_entries",
       "propose_waste_entry",
       "query_waste",
+      "send_chart",
       "update_entry",
     ]);
     expect(tools.map((t) => t.name)).not.toContain("draft_pickup");
@@ -345,6 +366,15 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     expect(model.requests[0]!.instructions).toContain("role: manager");
   });
 
+  it("gives the outlet's menu, names and ids, so the model needs no get_menu call", async () => {
+    const model = new ScriptedModel([{ text: "ok" }]);
+    await handler(model, new RecordingObserver())(message("halo"));
+    const instructions = model.requests[0]!.instructions!;
+    expect(instructions).toContain(`${ids.nasi}: Nasi Putih`);
+    expect(instructions).toContain(`${ids.rendang}: Rendang Sapi`);
+    expect(instructions).not.toContain("Soto Ayam"); // outlet B's menu
+  });
+
   it("apologises when the model fails, and records the error on the trace", async () => {
     const observer = new RecordingObserver();
     const model = new ScriptedModel([{ error: new Error("upstream timeout: secret detail") }]);
@@ -372,6 +402,225 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ["user", "bagaimana kemarin?"],
     ]);
   });
+  describe("data questions and charts (ADR 0015)", () => {
+    // Outlet A, local days 2026-02-10..12, apart from the dates other tests write to.
+    // Rendang 0.120 kg and Rp 13,000 per portion; nasi 0.200 kg.
+    const range = { from: "2026-02-10", to: "2026-02-12" };
+    const noon = (day: string) => new Date(`${day}T05:00:00Z`); // 12:00 in Asia/Jakarta
+
+    beforeAll(async () => {
+      const waste = (itemId: string, day: string, kg: string, portions: number, cause: string) => ({
+        outletId: ids.outletA,
+        itemId,
+        loggedAt: noon(day),
+        weightKg: kg,
+        portionCount: portions,
+        cause,
+        source: "text" as const,
+      });
+      await db
+        .insert(wasteEntries)
+        .values([
+          waste(ids.rendang, "2026-02-10", "0.240", 2, "over_prep"),
+          waste(ids.nasi, "2026-02-11", "1.000", 5, "over_prep"),
+          waste(ids.rendang, "2026-02-12", "0.600", 5, "spoilage"),
+          { ...waste(ids.soto, "2026-02-11", "9.000", 30, "spoilage"), outletId: ids.outletB },
+        ]);
+      await db.insert(sales).values(
+        [
+          ["2026-02-10", 40],
+          ["2026-02-11", 42],
+          ["2026-02-12", 20],
+        ].map(([date, qtySold]) => ({
+          outletId: ids.outletA,
+          itemId: ids.rendang,
+          date: date as string,
+          qtySold: qtySold as number,
+        })),
+      );
+    });
+
+    function chartTurn(input: JsonValue, reply = "Limbah naik pada 12 Feb.") {
+      return new ScriptedModel([{ toolCall: { name: "send_chart", input } }, { text: reply }]);
+    }
+
+    it("sends a waste trend after the text reply, with the outlet's numbers per day", async () => {
+      const model = chartTurn({ kind: "waste_trend", ...range, metric: "waste_kg" });
+      const result = await handler(model, new RecordingObserver())(message("tren limbah?"));
+
+      expect(charts.values()).toEqual([
+        { date: "2026-02-10", value: 0.24 },
+        { date: "2026-02-11", value: 1 },
+        { date: "2026-02-12", value: 0.6 },
+      ]);
+      expect(result).toEqual({
+        type: "reply",
+        text: "Limbah naik pada 12 Feb.",
+        chart: { png: Buffer.from("png"), title: "Limbah per hari (kg), 10–12 Feb 2026" },
+      });
+      expect(model.lastToolResult()).toContain('"sent":true');
+    });
+
+    it("fills days without waste with zero, for one item, in rupiah", async () => {
+      const model = chartTurn({
+        kind: "waste_trend",
+        ...range,
+        metric: "cost_idr",
+        item_id: ids.rendang,
+      });
+      const result = await handler(model, new RecordingObserver())(message("biaya rendang?"));
+      expect(charts.values()).toEqual([
+        { date: "2026-02-10", value: 26000 },
+        { date: "2026-02-11", value: 0 },
+        { date: "2026-02-12", value: 65000 },
+      ]);
+      expect(result).toMatchObject({
+        chart: { title: "Limbah Rendang Sapi per hari (Rp), 10–12 Feb 2026" },
+      });
+    });
+
+    it("compares one item's waste with its sales on the same days", async () => {
+      const model = chartTurn({ kind: "waste_vs_sales", ...range, item_id: ids.rendang });
+      const result = await handler(model, new RecordingObserver())(message("kenapa rendang naik?"));
+      expect(charts.values()).toEqual([
+        { date: "2026-02-10", series: "Limbah", portions: 2 },
+        { date: "2026-02-11", series: "Limbah", portions: 0 },
+        { date: "2026-02-12", series: "Limbah", portions: 5 },
+        { date: "2026-02-10", series: "Terjual", portions: 40 },
+        { date: "2026-02-11", series: "Terjual", portions: 42 },
+        { date: "2026-02-12", series: "Terjual", portions: 20 },
+      ]);
+      expect(result).toMatchObject({
+        chart: { title: "Rendang Sapi: limbah vs terjual (porsi), 10–12 Feb 2026" },
+      });
+    });
+
+    it("ranks waste by cause and by item, largest first", async () => {
+      await handler(
+        chartTurn({ kind: "waste_breakdown", ...range, metric: "waste_kg", by: "cause" }),
+        new RecordingObserver(),
+      )(message("penyebab terbesar?"));
+      expect(charts.values()).toEqual([
+        { label: "Kelebihan masak", value: 1.24 },
+        { label: "Basi", value: 0.6 },
+      ]);
+
+      const result = await handler(
+        chartTurn({ kind: "waste_breakdown", ...range, metric: "waste_kg", by: "item" }),
+        new RecordingObserver(),
+      )(message("menu terbesar?"));
+      expect(charts.values()).toEqual([
+        { label: "Nasi Putih", value: 1 },
+        { label: "Rendang Sapi", value: 0.84 },
+      ]);
+      expect(result).toMatchObject({
+        chart: { title: "Limbah per menu (kg), 10–12 Feb 2026" },
+      });
+    });
+
+    it("sends no chart when the range has no waste", async () => {
+      const model = chartTurn(
+        { kind: "waste_trend", from: "2026-02-01", to: "2026-02-05", metric: "waste_kg" },
+        "Tidak ada limbah tercatat.",
+      );
+      const result = await handler(model, new RecordingObserver())(message("tren awal Feb?"));
+      expect(result).toEqual({ type: "reply", text: "Tidak ada limbah tercatat." });
+      expect(charts.specs).toHaveLength(0);
+      expect(model.lastToolResult()).toContain('"reason":"no_data"');
+    });
+
+    it("sends no trend for a single day", async () => {
+      const model = chartTurn({
+        kind: "waste_trend",
+        from: "2026-02-12",
+        to: "2026-02-12",
+        metric: "waste_kg",
+      });
+      const result = await handler(model, new RecordingObserver())(message("tren hari ini?"));
+      expect(result).not.toHaveProperty("chart");
+      expect(model.lastToolResult()).toContain('"reason":"no_data"');
+    });
+
+    it("refuses a range longer than 92 days, an item of another outlet, and a second chart", async () => {
+      const tooLong = chartTurn({
+        kind: "waste_trend",
+        from: "2025-11-01",
+        to: "2026-02-12",
+        metric: "waste_kg",
+      });
+      expect(await handler(tooLong, new RecordingObserver())(message("tren?"))).not.toHaveProperty(
+        "chart",
+      );
+      expect(tooLong.lastToolResult()).toContain("92 days");
+
+      const otherOutlet = chartTurn({ kind: "waste_vs_sales", ...range, item_id: ids.soto });
+      expect(
+        await handler(otherOutlet, new RecordingObserver())(message("soto?")),
+      ).not.toHaveProperty("chart");
+      expect(otherOutlet.lastToolResult()).toContain("not on this outlet's menu");
+
+      const twice = new ScriptedModel([
+        { toolCall: { name: "send_chart", input: { kind: "waste_trend", ...range } } },
+        {
+          toolCall: {
+            name: "send_chart",
+            input: { kind: "waste_breakdown", ...range, by: "item" },
+          },
+        },
+        { text: "Ini grafiknya." },
+      ]);
+      const result = await handler(twice, new RecordingObserver())(message("dua grafik"));
+      expect(twice.lastToolResult()).toContain("one chart per turn");
+      expect(charts.specs).toHaveLength(1);
+      expect(result).toMatchObject({ chart: { title: "Limbah per hari (kg), 10–12 Feb 2026" } });
+    });
+
+    it("refuses a range of thousands of years at once, without walking its days", async () => {
+      const model = chartTurn({ kind: "waste_trend", from: "0001-01-01", to: "9999-12-31" });
+      const started = performance.now();
+      expect(await handler(model, new RecordingObserver())(message("semua?"))).not.toHaveProperty(
+        "chart",
+      );
+      expect(model.lastToolResult()).toContain("92 days");
+      // Building the 3.65M day strings first takes seconds and stalls every chat in the process.
+      expect(performance.now() - started).toBeLessThan(500);
+    });
+
+    it("rejects an impossible date instead of shifting or emptying the chart", async () => {
+      const model = chartTurn(
+        { kind: "waste_trend", from: "2026-02-10", to: "2026-13-01" },
+        "Tanggalnya tidak valid.",
+      );
+      const result = await handler(model, new RecordingObserver())(message("tren?"));
+      expect(result).toEqual({ type: "reply", text: "Tanggalnya tidak valid." });
+      expect(charts.specs).toHaveLength(0);
+      // An input error the model can fix, not a "no data" answer.
+      expect(model.lastToolResult()).not.toContain("no_data");
+      expect(model.lastToolResult()).toMatch(/date/i);
+    });
+
+    it("answers in text only when the chart cannot be drawn", async () => {
+      const model = chartTurn({ kind: "waste_trend", ...range }, "Total 1,84 kg.");
+      const result = await handler(model, new RecordingObserver(), {
+        charts: new RecordingRenderer(true),
+      })(message("tren?"));
+      expect(result).toEqual({ type: "reply", text: "Total 1,84 kg." });
+      expect(model.lastToolResult()).toContain("could not be drawn");
+    });
+
+    it("draws a real PNG with the bundled font", async () => {
+      const model = chartTurn({ kind: "waste_vs_sales", ...range, item_id: ids.rendang });
+      const result = await handler(model, new RecordingObserver(), {
+        charts: await createChartRenderer(),
+      })(message("kenapa rendang naik?"));
+      const png = (result as { chart: { png: Buffer } }).chart.png;
+      expect(png.subarray(0, 8)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      );
+      expect(png.readUInt32BE(16)).toBeGreaterThan(500); // width from the IHDR chunk
+    });
+  });
+
   describe("waste logging (ADR 0014)", () => {
     const PHOTO = Buffer.from("fake-jpeg-bytes");
     const io = {
@@ -855,6 +1104,38 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         text: UNSUPPORTED_ATTACHMENT,
       });
       expect(model.requests).toHaveLength(0);
+    });
+
+    it("finds a saved entry with list_entries, then corrects it with update_entry", async () => {
+      const model = new ScriptedModel([
+        {
+          toolCall: {
+            name: "list_entries",
+            input: { from: "2026-03-02", to: "2026-03-02", item_id: ids.rendang },
+          },
+        },
+        {
+          toolCall: {
+            name: "update_entry",
+            input: { id: ids.wasteRendangDay2, patch: { cause: "spoilage" } },
+          },
+        },
+        { text: "Sudah diperbaiki: penyebabnya basi." },
+      ]);
+      await handler(
+        model,
+        new RecordingObserver(),
+      )(message("rendang tanggal 2 itu basi, bukan sisa piring"));
+      // The listing gave the model the entry id it then corrected. The model sent no outlet_id,
+      // so the echoed outlet shows the sender's outlet was filled in.
+      const listing = JSON.stringify(model.requests[1]!.chatHistory.at(-1));
+      expect(listing).toContain(ids.wasteRendangDay2);
+      expect(listing).toContain(ids.outletA);
+      const [entry] = await db
+        .select()
+        .from(wasteEntries)
+        .where(eq(wasteEntries.id, ids.wasteRendangDay2));
+      expect(entry!.cause).toBe("spoilage");
     });
 
     it("scores a later correction on the trace of the turn that logged the entry", async () => {

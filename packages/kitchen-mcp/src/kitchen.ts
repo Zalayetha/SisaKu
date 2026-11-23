@@ -1,4 +1,4 @@
-import { and, asc, between, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, between, desc, eq, sql, type SQL } from "drizzle-orm";
 import {
   agentRuns,
   MAX_WASTE_WEIGHT_KG,
@@ -11,6 +11,7 @@ import {
   type createDb,
 } from "@sisaku/db";
 import {
+  MAX_LISTED_ENTRIES,
   MAX_SALES_RANGE_DAYS,
   type GetMenuInput,
   type GetMenuOutput,
@@ -18,8 +19,11 @@ import {
   type GetPrepLogOutput,
   type GetSalesInput,
   type GetSalesOutput,
+  type ListEntriesInput,
+  type ListEntriesOutput,
   type LogWasteInput,
   type QueryWasteInput,
+  type WasteFilters,
   type QueryWasteOutput,
   type UpdateEntryInput,
   type WasteEntry,
@@ -227,8 +231,8 @@ export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entries:
   };
 }
 
-export async function queryWaste(db: Db, input: QueryWasteInput): Promise<QueryWasteOutput> {
-  const { filters, group_by } = input;
+/** The waste entries of one outlet on its local days, optionally for one item or cause. */
+async function wasteWhere(db: Db, filters: WasteFilters) {
   const outlet = await requireOutlet(db, filters.outlet_id);
   const tz = outlet.timezone;
   if (filters.item_id) await requireItem(db, filters.outlet_id, filters.item_id);
@@ -241,6 +245,55 @@ export async function queryWaste(db: Db, input: QueryWasteInput): Promise<QueryW
   ];
   if (filters.item_id) where.push(eq(wasteEntries.itemId, filters.item_id));
   if (filters.cause) where.push(eq(wasteEntries.cause, filters.cause));
+  return { tz, where };
+}
+
+/**
+ * Single waste entries with their ids, newest first, so a correction can name the entry to
+ * update_entry. Bounded: at most MAX_LISTED_ENTRIES, with `truncated` when more matched.
+ */
+export async function listEntries(db: Db, input: ListEntriesInput): Promise<ListEntriesOutput> {
+  const { tz, where } = await wasteWhere(db, input);
+  const rows = await db
+    .select({
+      id: wasteEntries.id,
+      itemId: wasteEntries.itemId,
+      itemName: menuItems.name,
+      loggedAt: wasteEntries.loggedAt,
+      localDate: sql<string>`to_char(${wasteEntries.loggedAt} at time zone ${tz}, 'YYYY-MM-DD')`,
+      weightKg: wasteEntries.weightKg,
+      portionCount: wasteEntries.portionCount,
+      cause: wasteEntries.cause,
+      source: wasteEntries.source,
+    })
+    .from(wasteEntries)
+    .innerJoin(menuItems, eq(menuItems.id, wasteEntries.itemId))
+    .where(and(...where))
+    .orderBy(desc(wasteEntries.loggedAt), asc(wasteEntries.id))
+    .limit(MAX_LISTED_ENTRIES + 1);
+  return {
+    outlet_id: input.outlet_id,
+    from: input.from,
+    to: input.to,
+    timezone: tz,
+    entries: rows.slice(0, MAX_LISTED_ENTRIES).map((r) => ({
+      id: r.id,
+      item_id: r.itemId,
+      item_name: r.itemName,
+      logged_at: r.loggedAt.toISOString(),
+      local_date: r.localDate,
+      weight_kg: Number(r.weightKg),
+      portion_count: r.portionCount,
+      cause: r.cause,
+      source: r.source,
+    })),
+    truncated: rows.length > MAX_LISTED_ENTRIES,
+  };
+}
+
+export async function queryWaste(db: Db, input: QueryWasteInput): Promise<QueryWasteOutput> {
+  const { filters, group_by } = input;
+  const { tz, where } = await wasteWhere(db, filters);
 
   // nullif: defence in depth for a database without migration 0002. An item with a 0 portion
   // weight still counts toward waste_kg, but is left out of the estimated portions and cost

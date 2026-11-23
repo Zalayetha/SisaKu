@@ -4,6 +4,7 @@ import {
   getPrepLog,
   getSales,
   KitchenError,
+  listEntries,
   logWaste,
   queryWaste,
   updateEntry,
@@ -44,7 +45,7 @@ export function createKitchenServer(db: Db) {
     "get_sales",
     {
       title: "Get sales",
-      description: `Portions sold per menu item per day for one outlet, from the POS. Dates are inclusive; at most ${s.MAX_SALES_RANGE_DAYS} days per call. Use item_id from get_menu to narrow to one item.`,
+      description: `Portions sold per menu item per day for one outlet, from the POS. Dates are inclusive; at most ${s.MAX_SALES_RANGE_DAYS} days per call. Give item_id to narrow to one item.`,
       inputSchema: s.getSalesInput,
       outputSchema: s.getSalesOutput,
       annotations: read,
@@ -57,7 +58,7 @@ export function createKitchenServer(db: Db) {
     {
       title: "Get menu",
       description:
-        "Menu items of one outlet with id, category, cost per portion (Rupiah), portion weight (kg) and food category. Call this to turn an item name into the item_id other tools need.",
+        "Menu items of one outlet with id, category, cost per portion (Rupiah), portion weight (kg) and food category.",
       inputSchema: s.getMenuInput,
       outputSchema: s.getMenuOutput,
       annotations: read,
@@ -101,6 +102,18 @@ export function createKitchenServer(db: Db) {
       annotations: read,
     },
     handle(db, queryWaste),
+  );
+
+  server.registerTool(
+    "list_entries",
+    {
+      title: "List waste entries",
+      description: `Single waste entries of one outlet over local days, newest first, each with its id, item, time, kg, portions and cause; optionally for one item or cause. At most ${s.MAX_LISTED_ENTRIES} entries (truncated is true when more matched). Use it to find the entry to correct with update_entry; use query_waste for totals.`,
+      inputSchema: s.listEntriesInput,
+      outputSchema: s.listEntriesOutput,
+      annotations: read,
+    },
+    handle(db, listEntries),
   );
 
   server.registerTool(

@@ -58,7 +58,7 @@ Each step is its own BullMQ job, so a failed step reruns alone.
 - **Log waste:** photo or text → vision extraction → staff confirm a portion count (weight = portion count × the stored portion weight; a typed weight is also accepted) → `log_waste`
 - **Ask questions:** "why did rendang waste spike?" → `query_waste` + `get_sales` → answer with a chart
 - **Approve:** prep changes and pickup drafts → `submit_pickup` only after an explicit yes
-- **Correct data:** fix an entry → `update_entry`; the correction is logged as eval feedback
+- **Correct data:** find the entry → `list_entries`, fix it → `update_entry`; the correction is logged as eval feedback
 
 ## MCP servers and tools
 
@@ -66,7 +66,7 @@ Two MCP servers form the only path to data, so both agents share one tool layer 
 
 | MCP server | Tools | Resources | Build |
 | --- | --- | --- | --- |
-| `kitchen-mcp` | `get_sales(outlet, date_range, item?)`, `get_menu(outlet)`, `get_prep_log(outlet, date)`, `log_waste(entry)`, `query_waste(filters, group_by)`, `update_entry(id, patch)` | Menu with cost and weight per portion; waste cause list | Full; reads mock data from Postgres, later a vendor API or CSV export |
+| `kitchen-mcp` | `get_sales(outlet, date_range, item?)`, `get_menu(outlet)`, `get_prep_log(outlet, date)`, `log_waste(entry)`, `query_waste(filters, group_by)`, `list_entries(filters)`, `update_entry(id, patch)` | Menu with cost and weight per portion; waste cause list | Full; reads mock data from Postgres, later a vendor API or CSV export |
 | `impact-mcp` | `get_factor(food_category)`, `compute_co2e(filters)`, `find_foodbanks(outlet_id, location)`, `draft_pickup(outlet_id, foodbank_id, items)`, `submit_pickup(outlet_id, id)` (ADR 0011) | Emission factor table with sources; food bank list (mock) | Emission tools full; food bank tools a thin mock where `submit_pickup` only records the request |
 
 **MCP server we use (not build):** the Open-Meteo weather MCP server ([cmer81/open-meteo-mcp](https://github.com/cmer81/open-meteo-mcp), no API key) gives tomorrow's rain forecast per outlet location to the pipeline's forecast step, connected as an MCP client. Its output is treated as data, and if it is unavailable the forecast runs without the weather adjustment.

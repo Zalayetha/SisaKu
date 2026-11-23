@@ -11,6 +11,7 @@ export const COPILOT_TOOL_ALLOWLIST = [
   "get_menu",
   "get_sales",
   "get_prep_log",
+  "list_entries",
   "query_waste",
   "get_factor",
   "compute_co2e",
