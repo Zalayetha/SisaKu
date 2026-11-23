@@ -1,5 +1,5 @@
 import type { McpServer } from "@anvia/core/mcp";
-import { callMcpTool } from "@sisaku/agents";
+import { callMcpTool, COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
 import { agentRuns, menuItems, WASTE_CAUSES, wasteEntries } from "@sisaku/db";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../users";
@@ -117,7 +117,12 @@ async function saveGuess(guess: WasteGuess, deps: WasteActionDeps): Promise<Save
   } else {
     const [run] = await deps.db
       .insert(agentRuns)
-      .values({ agent: "copilot", trigger: "telegram", traceId: guess.traceId ?? null })
+      .values({
+        agent: "copilot",
+        trigger: "telegram",
+        traceId: guess.traceId ?? null,
+        instructionsVersion: COPILOT_INSTRUCTIONS_VERSION,
+      })
       .returning({ id: agentRuns.id });
     guess.runId = run!.id;
   }
