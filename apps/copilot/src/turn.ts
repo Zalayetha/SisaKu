@@ -161,6 +161,8 @@ export function createTurnHandler(deps: TurnDeps) {
     const messageTime = now();
     const today = localDate(messageTime, user.timezone);
 
+    // One menu read per turn: it goes into the instructions and backs propose_waste_entry.
+    const menu = await loadMenu(user.outletId);
     const turn: ProposeContext["turn"] = {};
     const open = photo ? undefined : guesses.openIn(chatId);
     const tools = [
@@ -181,7 +183,7 @@ export function createTurnHandler(deps: TurnDeps) {
         messageTime,
         photo,
         store: guesses,
-        loadMenu: () => loadMenu(user.outletId),
+        menu,
         turn,
       }),
     ];
@@ -194,6 +196,7 @@ export function createTurnHandler(deps: TurnDeps) {
       role: user.role,
       today,
       timezone: user.timezone,
+      menu: menu.map(({ id, name }) => ({ id, name })),
       openWasteGuess: open && open.userId === user.id ? describeForModel(open) : undefined,
     });
 

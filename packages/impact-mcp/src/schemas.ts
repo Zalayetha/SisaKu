@@ -41,7 +41,7 @@ export const findFoodbanksInput = z.object({
 });
 
 export const pickupItem = z.object({
-  item_id: uuid.describe("Menu item id from get_menu"),
+  item_id: uuid.describe("Menu item id"),
   portion_count: z.number().int().positive().max(10000),
 });
 
