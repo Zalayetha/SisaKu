@@ -575,6 +575,19 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(result).toMatchObject({ chart: { title: "Limbah per hari (kg), 10–12 Feb 2026" } });
     });
 
+    it("rejects an impossible date instead of shifting or emptying the chart", async () => {
+      const model = chartTurn(
+        { kind: "waste_trend", from: "2026-02-10", to: "2026-13-01" },
+        "Tanggalnya tidak valid.",
+      );
+      const result = await handler(model, new RecordingObserver())(message("tren?"));
+      expect(result).toEqual({ type: "reply", text: "Tanggalnya tidak valid." });
+      expect(charts.specs).toHaveLength(0);
+      // An input error the model can fix, not a "no data" answer.
+      expect(model.lastToolResult()).not.toContain("no_data");
+      expect(model.lastToolResult()).toMatch(/date/i);
+    });
+
     it("answers in text only when the chart cannot be drawn", async () => {
       const model = chartTurn({ kind: "waste_trend", ...range }, "Total 1,84 kg.");
       const result = await handler(model, new RecordingObserver(), {

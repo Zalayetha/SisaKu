@@ -48,7 +48,7 @@ export type ChartContext = {
   turn: { chart?: { png: Buffer; title: string } };
 };
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+const isoDate = z.iso.date();
 
 export const chartInput = z.object({
   kind: z
