@@ -4,7 +4,8 @@ import type { TurnIO, TurnResult } from "./turn";
 
 /**
  * Thin adapter: Telegram in polling mode (ADR 0012), every event handed to the turn handler,
- * which may answer with a message (with buttons) and edits of earlier waste cards (ADR 0014).
+ * which may answer with a message (with buttons), a chart photo after it (ADR 0015), and edits of
+ * earlier waste cards (ADR 0014).
  * Turns are serialised per conversation so chat history stays in order.
  */
 export function createTelegramService(options: {
@@ -56,6 +57,25 @@ export function createTelegramService(options: {
       });
       const last = sent.at(-1);
       if (last) result.onSent?.(last.id);
+      // The chart follows the text; the text is already delivered, so a failure only logs.
+      if (result.chart) {
+        await sendChannelMessage({
+          channel,
+          address,
+          message: {
+            text: "",
+            attachments: [
+              {
+                type: "image",
+                mediaType: "image/png",
+                filename: "grafik.png",
+                size: result.chart.png.byteLength,
+                source: { type: "data", data: result.chart.png.toString("base64") },
+              },
+            ],
+          },
+        }).catch((error: unknown) => log("Failed to send a chart", error));
+      }
     }
   }
 

@@ -10,10 +10,13 @@ import type { AgentObserver } from "@anvia/core/observability";
 import type { McpServer } from "@anvia/core/mcp";
 import {
   callMcpTool,
+  COPILOT_INSTRUCTIONS_VERSION,
   COPILOT_TOOL_ALLOWLIST,
   createCopilotAgent,
   scopedTools,
 } from "@sisaku/agents";
+import { createChartTool, type ChartContext } from "./charts/chart-tool";
+import type { ChartRenderer } from "./charts/render";
 import type { ChatHistory } from "./history";
 import type { CopilotUser, Db, UserLookup } from "./users";
 import { handleWasteAction } from "./waste/actions";
@@ -32,6 +35,8 @@ export type TurnResult =
       type: "reply";
       text: string;
       actions?: readonly ChannelAction[];
+      /** A chart to send as a photo after the text; its title is drawn on it (ADR 0015). */
+      chart?: { png: Buffer; title: string };
       edits?: readonly CardEdit[];
       /** Called with the id of the sent message, so a card can be edited later. */
       onSent?: (messageId: string) => void;
@@ -69,6 +74,8 @@ export type TurnDeps = {
   photos: PhotoStore;
   /** Lens in production; a recording fake in tests. */
   scorer: FeedbackScorer;
+  /** Vega-Lite + resvg in production; a recording fake in tests. */
+  charts: ChartRenderer;
   guesses?: GuessStore;
   allowlist?: readonly string[];
   now?: () => Date;
@@ -160,7 +167,11 @@ export function createTurnHandler(deps: TurnDeps) {
     const messageTime = now();
     const today = localDate(messageTime, user.timezone);
 
+    // One menu read per turn: it goes into the instructions and backs propose_waste_entry.
+    const menu = await loadMenu(user.outletId);
     const turn: ProposeContext["turn"] = {};
+    const chartTurn: ChartContext["turn"] = {};
+    const outlet = { outlet_id: user.outletId };
     const open = photo ? undefined : guesses.openIn(chatId);
     const tools = [
       ...scopedTools(deps.servers, allowlist, { outletId: user.outletId, userId: user.id }).map(
@@ -180,8 +191,20 @@ export function createTurnHandler(deps: TurnDeps) {
         messageTime,
         photo,
         store: guesses,
-        loadMenu: () => loadMenu(user.outletId),
+        menu,
         turn,
+      }),
+      createChartTool({
+        menu,
+        queryWaste: (args) =>
+          callMcpTool(deps.servers, "query_waste", {
+            ...args,
+            filters: { ...args.filters, ...outlet },
+          }),
+        getSales: (args) => callMcpTool(deps.servers, "get_sales", { ...args, ...outlet }),
+        renderer: deps.charts,
+        log,
+        turn: chartTurn,
       }),
     ];
 
@@ -193,6 +216,7 @@ export function createTurnHandler(deps: TurnDeps) {
       role: user.role,
       today,
       timezone: user.timezone,
+      menu: menu.map(({ id, name }) => ({ id, name })),
       openWasteGuess: open && open.userId === user.id ? describeForModel(open) : undefined,
     });
 
@@ -222,6 +246,7 @@ export function createTurnHandler(deps: TurnDeps) {
             user_id: user.id,
             role: user.role,
             chat_id: chatId,
+            instructions_version: COPILOT_INSTRUCTIONS_VERSION,
           },
         },
       });
@@ -247,7 +272,7 @@ export function createTurnHandler(deps: TurnDeps) {
       const reply = result.text.trim();
       if (result.type !== "response" || !reply) return { type: "reply", text: APOLOGY };
       deps.history.append(historyKey, historyText, reply);
-      return { type: "reply", text: reply };
+      return { type: "reply", text: reply, ...(chartTurn.chart ? { chart: chartTurn.chart } : {}) };
     } finally {
       // A guess from a failed turn is never shown, so it must not stay saveable; the guess it
       // would have replaced stays open instead.

@@ -131,6 +131,7 @@ export const agentRuns = pgTable("agent_runs", {
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   status: agentRunStatus("status").notNull().default("running"),
   traceId: text("trace_id"), // Anvia Lens
+  instructionsVersion: text("instructions_version"), // the agent's instructions (changelog)
   costUsd: numeric("cost_usd", { precision: 10, scale: 4 }),
 });
 

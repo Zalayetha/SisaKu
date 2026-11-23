@@ -18,7 +18,8 @@ docs/
 │   ├── 0011-impact-mcp-approval-boundary-and-co2e-method.md
 │   ├── 0012-kitchen-copilot-runtime-boundary.md
 │   ├── 0013-self-host-anvia-lens.md
-│   └── 0014-waste-logging-confirmation-gate.md
+│   ├── 0014-waste-logging-confirmation-gate.md
+│   └── 0015-copilot-data-answers-and-charts.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

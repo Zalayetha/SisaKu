@@ -93,12 +93,19 @@ Supporting context, ideas, assumptions, and open questions.
 - [0012: Kitchen Copilot runtime boundary](decision/0012-kitchen-copilot-runtime-boundary.md)
 - [0013: Self-host Anvia Lens as a separate Compose project](decision/0013-self-host-anvia-lens.md)
 - [0014: Waste logging confirmation gate](decision/0014-waste-logging-confirmation-gate.md)
+- [0015: Copilot data answers and charts](decision/0015-copilot-data-answers-and-charts.md)
 
 ### Product
 
 - [0001: Product direction](product/0001-product-direction.md)
 
 Add a link here whenever a document is created.
+
+## Agent instructions
+
+Every change to an agent's instructions, or to a tool description the model sees, bumps
+`COPILOT_INSTRUCTIONS_VERSION` and adds an entry to `packages/agents/INSTRUCTIONS-CHANGELOG.md`
+in the same change (ADR 0015). The entry records the rule text, why, and the eval it should move.
 
 ## Agent skills
 
