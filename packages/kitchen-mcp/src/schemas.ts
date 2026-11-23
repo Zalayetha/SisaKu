@@ -1,4 +1,4 @@
-import { WASTE_CAUSES } from "@sisaku/db";
+import { MAX_WASTE_WEIGHT_KG, WASTE_CAUSES } from "@sisaku/db";
 import * as z from "zod";
 
 // Input and output schemas for every kitchen-mcp tool. The SDK validates inputs against these
@@ -6,13 +6,11 @@ import * as z from "zod";
 
 /** Longest range get_sales accepts, in days (inclusive). Keeps raw rows out of an LLM's context. */
 export const MAX_SALES_RANGE_DAYS = 92;
-/** Upper bound of waste_entries.weight_kg, numeric(8, 3). */
-export const MAX_WEIGHT_KG = 99999.999;
 
 const uuid = z.uuid();
 const isoDate = z.iso.date();
 const cause = z.enum(WASTE_CAUSES);
-const weightKg = z.number().positive().max(MAX_WEIGHT_KG);
+const weightKg = z.number().positive().max(MAX_WASTE_WEIGHT_KG);
 const portionCount = z.number().int().positive().max(10000);
 
 const photoPath = z
@@ -49,29 +47,41 @@ export const getPrepLogInput = z.object({
   date: isoDate.describe("Day of the prep log (YYYY-MM-DD)"),
 });
 
-export const logWasteInput = z
+/** Most lines one log_waste call takes: a waste guess has up to five (ADR 0014). */
+export const MAX_WASTE_LINES = 5;
+
+const wasteLine = z
   .object({
-    outlet_id: uuid,
     item_id: uuid.describe("Menu item id from get_menu"),
-    cause,
-    source: z.enum(["photo", "text"]).describe("How staff reported it"),
     portion_count: portionCount
       .optional()
       .describe("Portions wasted; the server converts to kg with the item's portion weight"),
     weight_kg: weightKg.optional().describe("Weight wasted in kg, when staff typed a weight"),
-    photo_path: photoPath
-      .optional()
-      .describe("Relative path of the saved photo inside the photo volume"),
-    confidence: z.number().min(0).max(1).optional().describe("Vision model confidence, 0 to 1"),
-    confirmed_by: uuid.optional().describe("users.id of the staff member who confirmed the entry"),
-    logged_at: z.iso
-      .datetime({ offset: true })
-      .optional()
-      .describe("When the waste happened (ISO 8601 with offset); defaults to now"),
   })
   .refine((v) => (v.portion_count === undefined) !== (v.weight_kg === undefined), {
     message: "Give exactly one of portion_count or weight_kg",
   });
+
+export const logWasteInput = z.object({
+  outlet_id: uuid,
+  lines: z
+    .array(wasteLine)
+    .min(1)
+    .max(MAX_WASTE_LINES)
+    .describe("One entry per line; all are saved together, or none if any line is rejected"),
+  cause,
+  source: z.enum(["photo", "text"]).describe("How staff reported it"),
+  photo_path: photoPath
+    .optional()
+    .describe("Relative path of the saved photo inside the photo volume"),
+  confidence: z.number().min(0).max(1).optional().describe("Vision model confidence, 0 to 1"),
+  confirmed_by: uuid.optional().describe("users.id of the staff member who confirmed the entry"),
+  run_id: uuid.optional().describe("agent_runs.id of the Copilot turn that logged the entry"),
+  logged_at: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("When the waste happened (ISO 8601 with offset); defaults to now"),
+});
 
 export const queryWasteInput = z.object({
   filters: z
@@ -131,6 +141,7 @@ const wasteEntry = z.object({
   photo_path: z.string().nullable(),
   confidence: z.number().nullable(),
   confirmed_by: z.string().nullable(),
+  run_id: z.string().nullable().describe("agent_runs.id of the turn that logged it, if any"),
 });
 
 export const getSalesOutput = z.object({
@@ -150,7 +161,7 @@ export const getPrepLogOutput = z.object({
   rows: z.array(z.object({ item_id: uuid, item_name: z.string(), qty_prepped: z.number() })),
 });
 
-export const logWasteOutput = z.object({ entry: wasteEntry });
+export const logWasteOutput = z.object({ entries: z.array(wasteEntry) });
 
 export const queryWasteOutput = z.object({
   outlet_id: uuid,

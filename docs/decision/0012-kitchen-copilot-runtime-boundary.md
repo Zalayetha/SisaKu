@@ -14,7 +14,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 **Tool allowlist**
 
 - The Copilot's tools come from one deny-by-default allowlist in `packages/agents`. MCP tools not on it are dropped before the agent sees them, so a tool added to a server later stays hidden until someone adds it on purpose.
-- Final list: `get_menu`, `get_sales`, `get_prep_log`, `query_waste`, `get_factor`, `compute_co2e`, `log_waste`, `update_entry`, `submit_pickup`. ZALS-15 enables only the read tools; ZALS-16 adds `log_waste` and `update_entry`.
+- Final list: `get_menu`, `get_sales`, `get_prep_log`, `query_waste`, `get_factor`, `compute_co2e`, `log_waste`, `update_entry`, `submit_pickup`. ZALS-15 enables only the read tools; ZALS-16 adds `update_entry`, while `log_waste` is called only by fixed code after a confirmation (amended by ADR 0014).
 - `draft_pickup` is denied. Drafting pickups from surplus belongs to the nightly pipeline, and keeping it out of the chat means a message cannot fill the approval queue. `submit_pickup` is still guarded by the server's approval check (ADR 0011). Revisit if surplus routing (ZALS-28) is built.
 - Every role gets the same tools. The role is passed to the agent as context, so it can explain that only a manager or owner can approve.
 
@@ -34,7 +34,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 - The agent definition (instructions, model, allowlist, MCP clients, Lens) lives in `packages/agents`. The long-running Telegram service is its own app, `apps/copilot`, with its own lifecycle and SIGTERM handling. Both run from source through tsx with no build step, like the MCP servers (ADR 0009), so `packages/agents` drops the tsup build from ADR 0004.
 - The bot receives messages by polling Telegram, both locally and on the VPS. A webhook needs a public HTTPS route, a secret and manual registration, which pays off only with several bot instances.
 - MCP servers: spawned over stdio locally and in tests; over HTTP with the bearer token in deploy, selected by environment (ADR 0009). HTTP connections keep the MCP client's SSRF protection (`strict`) unless `MCP_SSRF_PROTECTION=disabled`, which deploy sets because the servers are reached by private Docker service names.
-- Chat history is kept in memory, capped at about 20 messages per user, and lost on restart. Pending confirm and approval interactions are a separate store, decided in ZALS-16.
+- Chat history is kept in memory, capped at about 20 messages per user, and lost on restart. Pending confirm and approval interactions are a separate store; waste guesses are decided in ADR 0014.
 - Replies mirror the user's language, defaulting to Bahasa Indonesia.
 - A failure during a turn (LLM, MCP tool, database) produces a fixed apology in chat; the real error goes to the Lens trace and logs only. No automatic retry within a turn.
 - Startup fails fast when the Telegram token (`getMe`), model key, `DATABASE_URL`, either MCP connection, or the Lens keys are missing or broken. At runtime Lens is best-effort and never blocks a reply.

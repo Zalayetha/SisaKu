@@ -59,11 +59,8 @@ describe.skipIf(!url)("outlet/item pairing", () => {
     });
   }
 
-  // Later migrations sit on top of 0001; revert them too so 0001 is the latest one reverted.
-  const revert0001 = () => {
-    run("down"); // 0002
-    run("down"); // 0001
-  };
+  // Later migrations sit on top of 0001; `down <tag>` reverts them too.
+  const revert0001 = () => run("down 0001_composite_item_outlet_fk");
 
   it("reverting 0001 restores the old FKs; up re-applies", async () => {
     revert0001();

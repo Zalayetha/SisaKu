@@ -1,5 +1,7 @@
 import { and, asc, between, eq, sql, type SQL } from "drizzle-orm";
 import {
+  agentRuns,
+  MAX_WASTE_WEIGHT_KG,
   menuItems,
   outlets,
   prepLogs,
@@ -10,7 +12,6 @@ import {
 } from "@sisaku/db";
 import {
   MAX_SALES_RANGE_DAYS,
-  MAX_WEIGHT_KG,
   type GetMenuInput,
   type GetMenuOutput,
   type GetPrepLogInput,
@@ -79,9 +80,16 @@ function portionsToKg(portions: number, item: { id: string; portionWeightKg: num
       `Item ${item.id} has no portion weight, so portions cannot be converted to kg; log weight_kg instead`,
     );
   const kg = round(portions * item.portionWeightKg, 3);
-  if (kg > MAX_WEIGHT_KG)
-    throw new KitchenError(`${portions} portions is ${kg} kg, above the ${MAX_WEIGHT_KG} kg limit`);
+  if (kg > MAX_WASTE_WEIGHT_KG)
+    throw new KitchenError(
+      `${portions} portions is ${kg} kg, above the ${MAX_WASTE_WEIGHT_KG} kg limit`,
+    );
   return kg;
+}
+
+async function requireRun(db: Db, runId: string) {
+  const [r] = await db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.id, runId));
+  if (!r) throw new KitchenError(`Unknown agent run ${runId}`);
 }
 
 async function getEntry(db: Db, outletId: string, id: string): Promise<WasteEntry> {
@@ -96,9 +104,10 @@ async function getEntry(db: Db, outletId: string, id: string): Promise<WasteEntr
       portionCount: wasteEntries.portionCount,
       cause: wasteEntries.cause,
       source: wasteEntries.source,
-      photoUrl: wasteEntries.photoUrl,
+      photoPath: wasteEntries.photoPath,
       confidence: wasteEntries.confidence,
       confirmedBy: wasteEntries.confirmedBy,
+      runId: wasteEntries.runId,
     })
     .from(wasteEntries)
     .innerJoin(menuItems, eq(menuItems.id, wasteEntries.itemId))
@@ -114,9 +123,10 @@ async function getEntry(db: Db, outletId: string, id: string): Promise<WasteEntr
     portion_count: e.portionCount,
     cause: e.cause,
     source: e.source,
-    photo_path: e.photoUrl,
+    photo_path: e.photoPath,
     confidence: e.confidence,
     confirmed_by: e.confirmedBy,
+    run_id: e.runId,
   };
 }
 
@@ -181,31 +191,40 @@ export async function getPrepLog(db: Db, input: GetPrepLogInput): Promise<GetPre
   return { outlet_id: input.outlet_id, date: input.date, rows };
 }
 
-export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entry: WasteEntry }> {
+/**
+ * Logs one waste entry per line. Every line is checked first and all rows go in one INSERT, so
+ * either every line is saved or none is (ADR 0014).
+ */
+export async function logWaste(db: Db, input: LogWasteInput): Promise<{ entries: WasteEntry[] }> {
   await requireOutlet(db, input.outlet_id);
-  const item = await requireItem(db, input.outlet_id, input.item_id);
   if (input.confirmed_by) await requireUser(db, input.outlet_id, input.confirmed_by);
+  if (input.run_id) await requireRun(db, input.run_id);
   const loggedAt = input.logged_at ? checkLoggedAt(input.logged_at) : new Date();
-  const weightKg =
-    input.portion_count !== undefined
-      ? portionsToKg(input.portion_count, item)
-      : round(input.weight_kg!, 3);
-  const [row] = await db
-    .insert(wasteEntries)
-    .values({
+  const values = [];
+  for (const line of input.lines) {
+    const item = await requireItem(db, input.outlet_id, line.item_id);
+    const weightKg =
+      line.portion_count !== undefined
+        ? portionsToKg(line.portion_count, item)
+        : round(line.weight_kg!, 3);
+    values.push({
       outletId: input.outlet_id,
-      itemId: input.item_id,
+      itemId: line.item_id,
       loggedAt,
       weightKg: String(weightKg),
-      portionCount: input.portion_count ?? null,
+      portionCount: line.portion_count ?? null,
       cause: input.cause,
       source: input.source,
-      photoUrl: input.photo_path ?? null, // column holds the relative photo path (ADR 0010)
+      photoPath: input.photo_path ?? null,
       confidence: input.confidence ?? null,
       confirmedBy: input.confirmed_by ?? null,
-    })
-    .returning({ id: wasteEntries.id });
-  return { entry: await getEntry(db, input.outlet_id, row!.id) };
+      runId: input.run_id ?? null,
+    });
+  }
+  const rows = await db.insert(wasteEntries).values(values).returning({ id: wasteEntries.id });
+  return {
+    entries: await Promise.all(rows.map((row) => getEntry(db, input.outlet_id, row.id))),
+  };
 }
 
 export async function queryWaste(db: Db, input: QueryWasteInput): Promise<QueryWasteOutput> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mcpSsrfProtection, mcpTransport } from "./mcp";
+import { mcpSsrfProtection, mcpTransport, parseToolJson } from "./mcp";
 
 const server = { dir: "/repo/packages/kitchen-mcp", urlEnv: "X_URL", tokenEnv: "X_TOKEN" };
 
@@ -32,5 +32,17 @@ describe("MCP transport", () => {
 
   it("rejects an unknown MCP_SSRF_PROTECTION value", () => {
     expect(() => mcpSsrfProtection({ MCP_SSRF_PROTECTION: "off" })).toThrow("strict");
+  });
+});
+
+describe("parseToolJson", () => {
+  it("reads the JSON text of rich MCP tool output", () => {
+    const output = {
+      content: [
+        { type: "text", text: '{"entry":' },
+        { type: "text", text: "1}" },
+      ],
+    };
+    expect(parseToolJson(output)).toEqual({ entry: 1 });
   });
 });

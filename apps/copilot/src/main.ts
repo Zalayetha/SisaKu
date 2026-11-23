@@ -5,12 +5,15 @@ import { ChatHistory } from "./history";
 import { createTelegramService } from "./telegram";
 import { createTurnHandler } from "./turn";
 import { createUserLookup } from "./users";
+import { createPhotoStore } from "./waste/photos";
 
 // Fails fast (ADR 0012): every setting and connection is checked before the bot polls.
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not set");
 const model = createModel();
 const lens = createLens("sisaku-copilot");
+// The photos volume (ADR 0010); confirmed waste photos are written here.
+const photos = await createPhotoStore(process.env.PHOTOS_DIR);
 const { db, pool } = createDb();
 await db.execute(sql`select 1`);
 const mcp = await connectMcpServers();
@@ -19,11 +22,14 @@ const service = createTelegramService({
   token,
   handleTurn: createTurnHandler({
     lookupUser: createUserLookup(db),
+    db,
     servers: mcp.servers,
     model,
     // "safe": no prompt, reply or tool bodies in Lens (ADR 0012).
     observer: lens.observer({ captureMode: "safe" }),
     history: new ChatHistory(20),
+    photos,
+    scorer: { score: (args) => lens.score(args) },
   }),
 });
 await service.start();

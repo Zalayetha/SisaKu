@@ -356,7 +356,7 @@ export function generateMockData(opts: GenerateOptions = {}): MockDataset {
             portionCount: portions,
             cause,
             source: photo ? "photo" : "text",
-            photoUrl: photo ? `mock://photos/${id}.jpg` : null,
+            photoPath: photo ? `${outletId}/${id}.jpg` : null, // relative to the photos volume (ADR 0010)
             confidence: photo ? Math.round((0.6 + rng.next() * 0.35) * 100) / 100 : null,
             confirmedBy: staff.id,
           });

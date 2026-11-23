@@ -32,6 +32,9 @@ export const WASTE_CAUSES = [
   "expired",
 ] as const;
 export type WasteCause = (typeof WASTE_CAUSES)[number];
+
+/** Largest waste weight one entry can hold: `waste_entries.weight_kg` is numeric(8, 3). */
+export const MAX_WASTE_WEIGHT_KG = 99999.999;
 export const recommendationStatus = pgEnum("recommendation_status", [
   "pending",
   "approved",
@@ -142,9 +145,10 @@ export const wasteEntries = pgTable(
     portionCount: integer("portion_count"),
     cause: text("cause").notNull(),
     source: wasteSource("source").notNull(),
-    photoUrl: text("photo_url"),
+    photoPath: text("photo_path"), // relative to the photos volume (ADR 0010)
     confidence: doublePrecision("confidence"),
     confirmedBy: uuid("confirmed_by").references(() => users.id),
+    runId: uuid("run_id").references(() => agentRuns.id), // the Copilot turn that logged it (ADR 0014)
   },
   (t) => [
     foreignKey({

@@ -3,8 +3,9 @@
  * listed here never reaches the model, so a tool added to a server later stays hidden until
  * someone adds it on purpose.
  *
- * Planned additions: `log_waste` and `update_entry` (ZALS-16), `submit_pickup` (with the
- * approval handler). `draft_pickup` belongs to the nightly pipeline and is never listed here.
+ * `log_waste` is never listed: only fixed code calls it, after a confirmation (ADR 0014).
+ * `draft_pickup` belongs to the nightly pipeline and is never listed here. Planned addition:
+ * `submit_pickup` (with the approval handler).
  */
 export const COPILOT_TOOL_ALLOWLIST = [
   "get_menu",
@@ -13,6 +14,7 @@ export const COPILOT_TOOL_ALLOWLIST = [
   "query_waste",
   "get_factor",
   "compute_co2e",
+  "update_entry",
 ] as const;
 
 export type CopilotToolName = (typeof COPILOT_TOOL_ALLOWLIST)[number];

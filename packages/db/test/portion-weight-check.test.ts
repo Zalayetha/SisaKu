@@ -45,14 +45,14 @@ describe.skipIf(!url)("menu_items.portion_weight_kg > 0", () => {
   });
 
   it("rolls back and re-applies", async () => {
-    run("down");
+    run("down 0002_portion_weight_positive");
     expect(await hasConstraint()).toBe(false);
     run("up");
     expect(await hasConstraint()).toBe(true);
   });
 
   it("refuses to apply over existing zero-weight rows, with a count and names", async () => {
-    run("down");
+    run("down 0002_portion_weight_positive");
     await insertItem("Kerupuk", "0");
     await insertItem("Es Teh", "0.000");
     let message = "";

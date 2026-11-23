@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ChannelConversationKind, ChannelEvent } from "@anvia/channel";
 import {
   Usage,
@@ -5,19 +6,43 @@ import {
   type CompletionRequest,
   type CompletionResponse,
   type JsonValue,
+  type ToolCallContext,
 } from "@anvia/core";
 import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability";
 import { McpClient, McpClientGroup } from "@anvia/mcp";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
-import { users } from "@sisaku/db";
+import { agentRuns, menuItems, users, wasteEntries } from "@sisaku/db";
 import { createImpactServer } from "@sisaku/impact-mcp";
 import { createKitchenServer } from "@sisaku/kitchen-mcp";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import { ChatHistory } from "./history";
-import { APOLOGY, createTurnHandler, unregisteredReply, type TurnDeps } from "./turn";
+import {
+  APOLOGY,
+  createTurnHandler,
+  REPLACED_CARD_TEXT,
+  UNSUPPORTED_ATTACHMENT,
+  unregisteredReply,
+  type CardEdit,
+  type TurnDeps,
+  type TurnResult,
+} from "./turn";
+import {
+  ALREADY_CANCELLED_TEXT,
+  ALREADY_REPLACED_TEXT,
+  ALREADY_SAVED_TEXT,
+  ASK_CORRECTION_TEXT,
+  EXPIRED_TEXT,
+  NOT_READY_TEXT,
+  NOT_YOURS_TEXT,
+  SAVE_FAILED_TEXT,
+} from "./waste/actions";
+import { actionId, parseActionId } from "./waste/card";
 import { createUserLookup, type Db } from "./users";
+import type { FeedbackScorer } from "./waste/feedback";
+import { GuessStore } from "./waste/guess";
+import type { PhotoStore } from "./waste/photos";
 
 const TELEGRAM_A = "1001"; // manager of outlet A
 const TELEGRAM_STRANGER = "9999";
@@ -51,7 +76,7 @@ class ScriptedModel implements CompletionModel {
     streaming: false,
     tools: true,
     toolChoice: true,
-    imageInput: false,
+    imageInput: true,
     documentInput: false,
     outputSchema: false,
     reasoning: false,
@@ -92,6 +117,7 @@ class ScriptedModel implements CompletionModel {
 
 type RecordedRun = {
   start: AgentRunStartArgs;
+  traceId: string;
   generations: number;
   tools: string[];
   status?: string;
@@ -105,9 +131,11 @@ class RecordingObserver implements AgentObserver {
 
   startRun(start: AgentRunStartArgs) {
     if (this.failing) throw new Error("Lens is down");
-    const run: RecordedRun = { start, generations: 0, tools: [] };
+    // Unique per run, so runs from different tests never share a trace id in the database.
+    const run: RecordedRun = { start, traceId: randomUUID(), generations: 0, tools: [] };
     this.runs.push(run);
     return {
+      trace: { traceId: run.traceId },
       startGeneration: () => {
         run.generations++;
         return { end: () => undefined };
@@ -124,6 +152,23 @@ class RecordingObserver implements AgentObserver {
         run.error = args.error;
       },
     };
+  }
+}
+
+/** Stands in for the photos volume. */
+class FakePhotoStore implements PhotoStore {
+  readonly saved: { path: string; data: Buffer }[] = [];
+  async save(path: string, data: Buffer) {
+    this.saved.push({ path, data });
+    return path;
+  }
+}
+
+/** Stands in for Lens scores. */
+class RecordingScorer implements FeedbackScorer {
+  readonly scores: Parameters<FeedbackScorer["score"]>[0][] = [];
+  score(args: Parameters<FeedbackScorer["score"]>[0]) {
+    this.scores.push(args);
   }
 }
 
@@ -147,6 +192,10 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   let pool: Awaited<ReturnType<typeof setupTestDb>>["pool"];
   let mcp: McpClientGroup;
   let history: ChatHistory;
+  let clock: Date;
+  let guesses: GuessStore;
+  let photos: FakePhotoStore;
+  let scorer: RecordingScorer;
 
   beforeAll(async () => {
     ({ db, pool } = await setupTestDb());
@@ -169,16 +218,24 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
 
   beforeEach(() => {
     history = new ChatHistory(20);
+    clock = new Date("2026-03-03T03:00:00Z");
+    guesses = new GuessStore(() => clock);
+    photos = new FakePhotoStore();
+    scorer = new RecordingScorer();
   });
 
   function handler(model: CompletionModel, observer: AgentObserver, extra: Partial<TurnDeps> = {}) {
     return createTurnHandler({
       lookupUser: createUserLookup(db),
+      db,
       servers: mcp.servers,
       model,
       observer,
       history,
-      now: () => new Date("2026-03-03T03:00:00Z"),
+      photos,
+      scorer,
+      guesses,
+      now: () => clock,
       log: () => undefined,
       ...extra,
     });
@@ -204,7 +261,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     expect(model.requests).toHaveLength(0);
   });
 
-  it("offers the model exactly the allowlisted tools, with no outlet_id anywhere", async () => {
+  it("offers the allowlisted tools and propose_waste_entry, never log_waste or outlet_id", async () => {
     const model = new ScriptedModel([{ text: "Halo!" }]);
     const result = await handler(model, new RecordingObserver())(message("halo"));
     expect(result).toEqual({ type: "reply", text: "Halo!" });
@@ -216,9 +273,12 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       "get_menu",
       "get_prep_log",
       "get_sales",
+      "propose_waste_entry",
       "query_waste",
+      "update_entry",
     ]);
     expect(tools.map((t) => t.name)).not.toContain("draft_pickup");
+    expect(tools.map((t) => t.name)).not.toContain("log_waste");
     expect(JSON.stringify(tools)).not.toContain("outlet_id");
     expect(JSON.stringify(tools)).not.toContain("confirmed_by");
   });
@@ -309,5 +369,526 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ["assistant", "Halo Budi!"],
       ["user", "bagaimana kemarin?"],
     ]);
+  });
+  describe("waste logging (ADR 0014)", () => {
+    const PHOTO = Buffer.from("fake-jpeg-bytes");
+    const io = {
+      loadAttachment: async () => ({ type: "data" as const, data: PHOTO.toString("base64") }),
+    };
+    const TELEGRAM_A2 = "1003"; // another user of outlet A
+
+    beforeAll(async () => {
+      await db.insert(users).values({
+        id: "00000000-0000-4000-8000-000000000303",
+        outletId: ids.outletA,
+        name: "Staff A2",
+        telegramUserId: TELEGRAM_A2,
+      });
+    });
+
+    function photoMessage(caption = "", senderId = TELEGRAM_A): ChannelEvent {
+      const base = message(caption, senderId) as Extract<ChannelEvent, { type: "message" }>;
+      return {
+        ...base,
+        attachments: [
+          { id: "photo-1", type: "image", mediaType: "image/jpeg", size: PHOTO.length },
+        ],
+      };
+    }
+
+    function tap(actionId: string, senderId = TELEGRAM_A, messageId = "card-1"): ChannelEvent {
+      return {
+        type: "action",
+        id: `a-${Math.random()}`,
+        platform: "telegram",
+        conversation: { id: `chat-${senderId}`, kind: "direct" },
+        sender: { id: senderId, displayName: "Budi", bot: false },
+        messageId,
+        actionId,
+        raw: {},
+      };
+    }
+
+    type Reply = Extract<TurnResult, { type: "reply" }>;
+    function asReply(result: TurnResult): Reply {
+      if (result.type !== "reply") throw new Error(`expected a reply, got ${result.type}`);
+      return result;
+    }
+    function button(result: TurnResult, label: string): string {
+      const action = asReply(result).actions?.find((a) => a.label === label);
+      if (!action) throw new Error(`no ${label} button`);
+      return action.id;
+    }
+    function editOf(result: TurnResult): CardEdit {
+      if (result.type === "skip" || !result.edits?.[0]) throw new Error("expected a card edit");
+      return result.edits[0];
+    }
+    const guessIdOf = (result: TurnResult) =>
+      parseActionId(asReply(result).actions![0]!.id)!.guessId;
+
+    const propose = (input: JsonValue): Step => ({
+      toolCall: { name: "propose_waste_entry", input },
+    });
+    const entriesOfRun = (runId: string) =>
+      db.select().from(wasteEntries).where(eq(wasteEntries.runId, runId));
+
+    it("saves a confident photo guess only on Simpan: one entry per line, photo, run and score", async () => {
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        { toolCall: { name: "get_menu", input: {} } },
+        propose({
+          lines: [
+            { item_id: ids.nasi, portion_count: 3 },
+            { item_id: ids.rendang, portion_count: 2 },
+          ],
+          confidence: 0.85,
+          cause: "over_prep",
+        }),
+        { text: "Ini tebakan saya." },
+      ]);
+      const handle = handler(model, observer);
+      const card = asReply(await handle(photoMessage("sisa siang"), io));
+      expect(card.text).toContain("1. Nasi Putih: 3 porsi");
+      expect(card.text).toContain("2. Rendang Sapi: 2 porsi");
+      expect(card.text).toContain("Penyebab: Kelebihan masak");
+      expect(card.actions?.map((a) => a.label)).toEqual(["Simpan", "Ubah", "Batal"]);
+      // The model saw the photo as an image.
+      expect(JSON.stringify(model.requests[0]!.chatHistory.at(-1))).toContain('"type":"image"');
+      expect(photos.saved).toHaveLength(0);
+
+      const saved = await handle(tap(button(card, "Simpan")));
+      expect(editOf(saved).text).toContain("Tersimpan ✓");
+      expect(editOf(saved).actions).toBeUndefined();
+
+      const guessId = guessIdOf(card);
+      expect(photos.saved).toEqual([{ path: `${ids.outletA}/${guessId}.jpg`, data: PHOTO }]);
+      const trace1 = observer.runs[0]!.traceId;
+      const [run] = await db.select().from(agentRuns).where(eq(agentRuns.traceId, trace1));
+      expect(run).toMatchObject({ agent: "copilot", trigger: "telegram", status: "succeeded" });
+      const entries = await entriesOfRun(run!.id);
+      expect(entries).toHaveLength(2);
+      for (const e of entries) {
+        expect(e).toMatchObject({
+          outletId: ids.outletA,
+          source: "photo",
+          confidence: 0.85,
+          cause: "over_prep",
+          confirmedBy: ids.staffA,
+          photoPath: `${ids.outletA}/${guessId}.jpg`,
+        });
+      }
+      expect(entries.map((e) => e.weightKg).sort()).toEqual(["0.240", "0.600"]);
+      expect(scorer.scores).toEqual([
+        {
+          traceId: trace1,
+          name: "waste_guess_accepted",
+          value: 1,
+          metadata: { fields: [], unsure: false, lines: 2 },
+        },
+      ]);
+
+      // A double tap saves nothing more and leaves the "Tersimpan ✓" card alone.
+      const again = asReply(await handle(tap(button(card, "Simpan"))));
+      expect(again).toEqual({ type: "reply", text: ALREADY_SAVED_TEXT, edits: [] });
+      expect(await entriesOfRun(run!.id)).toHaveLength(2);
+    });
+
+    it("saves nothing when one line fails, and lets the user tap Simpan again", async () => {
+      const esTeh = {
+        id: "00000000-0000-4000-8000-000000000109",
+        outletId: ids.outletA,
+        name: "Es Teh",
+        category: "drink",
+        costPerPortion: "3000",
+        portionWeightKg: "0.250",
+        foodCategory: "other",
+      };
+      await db.insert(menuItems).values(esTeh);
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({
+          lines: [
+            { item_id: ids.nasi, portion_count: 1 },
+            { item_id: esTeh.id, portion_count: 2 },
+          ],
+          cause: "over_prep",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, observer);
+      const card = await handle(photoMessage(), io);
+      const traceId = observer.runs[0]!.traceId;
+      const entriesOfTrace = () =>
+        db
+          .select({ id: wasteEntries.id })
+          .from(wasteEntries)
+          .innerJoin(agentRuns, eq(agentRuns.id, wasteEntries.runId))
+          .where(eq(agentRuns.traceId, traceId));
+
+      // Es Teh leaves the menu before Simpan, so log_waste rejects the second line.
+      await db.delete(menuItems).where(eq(menuItems.id, esTeh.id));
+      const failed = asReply(await handle(tap(button(card, "Simpan"))));
+      expect(failed.text).toBe(SAVE_FAILED_TEXT);
+      expect(failed.edits ?? []).toEqual([]);
+      expect(await entriesOfTrace()).toEqual([]);
+
+      await db.insert(menuItems).values(esTeh);
+      const saved = await handle(tap(button(card, "Simpan")));
+      expect(editOf(saved).text).toContain("Tersimpan ✓");
+      expect(await entriesOfTrace()).toHaveLength(2);
+      // The retry reuses the photo and the run instead of writing them again.
+      expect(photos.saved).toHaveLength(1);
+      expect(await db.select().from(agentRuns).where(eq(agentRuns.traceId, traceId))).toHaveLength(
+        1,
+      );
+    });
+
+    /** MCP servers whose log_waste saves but loses its first reply (e.g. a dropped connection). */
+    function serversLosingFirstSaveReply(): typeof mcp.servers {
+      let loseReply = true;
+      return mcp.servers.map((server) => ({
+        ...server,
+        tools: server.tools.map((tool) =>
+          tool.mcp.remoteName !== "log_waste"
+            ? tool
+            : {
+                ...tool,
+                async call(args: unknown, context?: ToolCallContext) {
+                  const result = await tool.call(args, context);
+                  if (loseReply) {
+                    loseReply = false;
+                    throw new Error("connection reset");
+                  }
+                  return result;
+                },
+              },
+        ),
+      })) as typeof mcp.servers;
+    }
+
+    it("does not log twice when a save committed but its reply was lost", async () => {
+      const servers = serversLosingFirstSaveReply();
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, observer, { servers });
+      const card = await handle(message("nasi 2 porsi basi"));
+      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(SAVE_FAILED_TEXT);
+      expect(editOf(await handle(tap(button(card, "Simpan")))).text).toContain("Tersimpan ✓");
+
+      const runs = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+      expect(runs).toHaveLength(1);
+      expect(runs[0]!.status).toBe("succeeded");
+      expect(await entriesOfRun(runs[0]!.id)).toHaveLength(1);
+    });
+
+    it("does not log twice when the user corrects a guess after a save whose reply was lost", async () => {
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 3 }],
+          cause: "spoilage",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 4 }],
+          cause: "plate_waste",
+          corrects_open_guess: true,
+        }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, observer, { servers: serversLosingFirstSaveReply() });
+      const card = await handle(photoMessage(), io);
+      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(SAVE_FAILED_TEXT);
+      await handle(tap(button(card, "Ubah")));
+      const corrected = await handle(message("4 porsi, sisa piring"));
+      const saved = editOf(await handle(tap(button(corrected, "Simpan"))));
+
+      // The first save had gone through: its entry is shown as stored, and nothing is logged again.
+      expect(saved.text).toContain("Nasi Putih: 3 porsi");
+      // The cause line, too, is the stored one, not the correction's.
+      expect(saved.text).toContain("Penyebab: Basi");
+      expect(saved.text).not.toContain("Sisa piring");
+      const runs = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+      expect(runs).toHaveLength(1);
+      expect(runs[0]!.status).toBe("succeeded");
+      expect(await entriesOfRun(runs[0]!.id)).toHaveLength(1);
+      expect(
+        await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[1]!.traceId)),
+      ).toEqual([]);
+      expect(photos.saved).toHaveLength(1);
+    });
+
+    it("never saves an unsure photo guess until the user supplies the item and portions", async () => {
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        { toolCall: { name: "get_menu", input: {} } },
+        propose({ candidate_item_ids: [ids.nasi, ids.rendang], confidence: 0.4 }),
+        { text: "Kurang yakin." },
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+        { text: "Oke." },
+      ]);
+      const handle = handler(model, observer);
+      const card = asReply(await handle(photoMessage(), io));
+      expect(card.text).toContain("kurang yakin");
+      expect(card.actions?.map((a) => a.label)).toEqual(["Nasi Putih", "Rendang Sapi", "Batal"]);
+
+      // A forged Simpan tap on the unsure guess is refused and logs nothing.
+      const guessId = guessIdOf(card);
+      const forged = asReply(await handle(tap(actionId(guessId, "s"))));
+      expect(forged.text).toBe(NOT_READY_TEXT);
+      expect(photos.saved).toHaveLength(0);
+      expect(
+        await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[0]!.traceId)),
+      ).toEqual([]);
+
+      // Picking a candidate asks for the portion count; typing it makes a guess that needs a cause.
+      const picked = await handle(tap(button(card, "Nasi Putih"), TELEGRAM_A, "card-7"));
+      expect(editOf(picked).text).toContain("Nasi Putih: berapa porsi");
+      const revised = asReply(await handle(message("2 porsi")));
+      expect(revised.text).toContain("Nasi Putih: 2 porsi");
+      expect(revised.edits).toEqual([{ messageId: "card-7", text: REPLACED_CARD_TEXT }]);
+      expect(revised.actions?.map((a) => a.label)).toEqual([
+        "Kelebihan masak",
+        "Basi",
+        "Sisa piring",
+        "Salah masak",
+        "Kedaluwarsa",
+        "Batal",
+      ]);
+      const ready = await handle(tap(button(revised, "Basi")));
+      expect(editOf(ready).actions?.map((a) => a.label)).toEqual(["Simpan", "Ubah", "Batal"]);
+
+      const saveId = editOf(ready).actions![0]!.id;
+      expect(editOf(await handle(tap(saveId))).text).toContain("Tersimpan ✓");
+      const trace2 = observer.runs[1]!.traceId;
+      const [run] = await db.select().from(agentRuns).where(eq(agentRuns.traceId, trace2));
+      const [entry] = await entriesOfRun(run!.id);
+      expect(entry).toMatchObject({ source: "photo", portionCount: 2, cause: "spoilage" });
+      // The photo keeps the unsure guess's id; the score marks the guess as not accepted.
+      expect(photos.saved.map((p) => p.path)).toEqual([
+        `${ids.outletA}/${parseActionId(saveId)!.guessId}.jpg`,
+      ]);
+      expect(scorer.scores).toEqual([
+        {
+          traceId: trace2,
+          name: "waste_guess_accepted",
+          value: 0,
+          metadata: { fields: ["lines_added"], unsure: true, lines: 1 },
+        },
+      ]);
+    });
+
+    it("lets the user correct a text guess with Ubah, then scores the changed fields", async () => {
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "over_prep" }),
+        { text: "Siap." },
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 4 }],
+          cause: "over_prep",
+          corrects_open_guess: true,
+        }),
+        { text: "Sudah dikoreksi." },
+      ]);
+      const handle = handler(model, observer);
+      const card = asReply(await handle(message("nasi 3 porsi kebuang, kebanyakan masak")));
+      card.onSent?.("card-10");
+      const ask = asReply(await handle(tap(button(card, "Ubah"), TELEGRAM_A, "card-10")));
+      expect(ask.text).toBe(ASK_CORRECTION_TEXT);
+
+      const revised = asReply(await handle(message("4 porsi")));
+      // The model was told about the open guess.
+      expect(model.requests[2]!.instructions).toContain("Open waste guess: Nasi Putih");
+      expect(revised.edits).toEqual([{ messageId: "card-10", text: REPLACED_CARD_TEXT }]);
+      // The replaced card's buttons are dead, and its "Diganti" text stays.
+      expect(await handle(tap(button(card, "Simpan")))).toEqual({
+        type: "reply",
+        text: ALREADY_REPLACED_TEXT,
+        edits: [],
+      });
+
+      await handle(tap(button(revised, "Simpan")));
+      const [run] = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.traceId, observer.runs[1]!.traceId));
+      const [entry] = await entriesOfRun(run!.id);
+      expect(entry).toMatchObject({
+        source: "text",
+        portionCount: 4,
+        weightKg: "0.800",
+        photoPath: null,
+        confidence: null,
+      });
+      expect(scorer.scores[0]).toMatchObject({ value: 0, metadata: { fields: ["portion_count"] } });
+    });
+
+    it("keeps an open photo guess when the user reports different waste by text", async () => {
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 1 }],
+          cause: "spoilage",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+        propose({ lines: [{ item_id: ids.rendang, portion_count: 2 }], cause: "over_prep" }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const photoCard = await handle(photoMessage(), io);
+      const textCard = asReply(await handle(message("rendang 2 porsi kebanyakan masak")));
+      expect(textCard.edits).toEqual([]);
+      await handle(tap(button(textCard, "Simpan")));
+      // The text entry carries no photo, and the photo guess can still be saved.
+      expect(photos.saved).toHaveLength(0);
+      await handle(tap(button(photoCard, "Simpan")));
+      expect(photos.saved).toHaveLength(1);
+    });
+
+    it("drops a guess on Batal or after 30 minutes, without saving a photo", async () => {
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 1 }],
+          cause: "spoilage",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 1 }],
+          cause: "spoilage",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const first = await handle(photoMessage(), io);
+      expect(editOf(await handle(tap(button(first, "Batal")))).text).toBe("Dibatalkan.");
+      expect(await handle(tap(button(first, "Simpan")))).toEqual({
+        type: "reply",
+        text: ALREADY_CANCELLED_TEXT,
+        edits: [],
+      });
+
+      const second = await handle(photoMessage(), io);
+      clock = new Date(clock.getTime() + 31 * 60 * 1000);
+      expect(asReply(await handle(tap(button(second, "Simpan")))).text).toBe(EXPIRED_TEXT);
+      expect(photos.saved).toHaveLength(0);
+      expect(scorer.scores).toHaveLength(0);
+    });
+
+    it("refuses a tap from anyone but the user who sent the photo", async () => {
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 1 }],
+          cause: "spoilage",
+          confidence: 0.9,
+        }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const card = await handle(photoMessage(), io);
+      const other = asReply(await handle(tap(button(card, "Simpan"), TELEGRAM_A2)));
+      expect(other.text).toBe(NOT_YOURS_TEXT);
+      expect(photos.saved).toHaveLength(0);
+    });
+
+    it("does not guess an item that is not on the outlet's menu", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.soto, portion_count: 1 }] }),
+        { text: "Soto tidak ada di menu outlet ini." },
+      ]);
+      const result = asReply(
+        await handler(model, new RecordingObserver())(message("soto 1 porsi basi")),
+      );
+      expect(model.lastToolResult()).toContain("not on this outlet's menu");
+      expect(result).toEqual({ type: "reply", text: "Soto tidak ada di menu outlet ini." });
+    });
+
+    it("refuses a guess whose portions would weigh more than an entry can hold", async () => {
+      await db.insert(menuItems).values({
+        id: "00000000-0000-4000-8000-00000000010a",
+        outletId: ids.outletA,
+        name: "Tumpeng Besar",
+        category: "main",
+        costPerPortion: "500000",
+        portionWeightKg: "15.000",
+        foodCategory: "rice",
+      });
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: "00000000-0000-4000-8000-00000000010a", portion_count: 10000 }],
+        }),
+        { text: "Jumlahnya terlalu besar." },
+      ]);
+      const result = await handler(model, new RecordingObserver())(message("tumpeng 10000 porsi"));
+      expect(model.lastToolResult()).toContain("more than");
+      expect(result).toEqual({ type: "reply", text: "Jumlahnya terlalu besar." });
+    });
+
+    it("answers other attachments with a fixed reply, without the model", async () => {
+      const model = new ScriptedModel([]);
+      const base = message("") as Extract<ChannelEvent, { type: "message" }>;
+      const voice: ChannelEvent = {
+        ...base,
+        attachments: [{ id: "v-1", type: "audio", mediaType: "audio/ogg" }],
+      };
+      expect(await handler(model, new RecordingObserver())(voice, io)).toEqual({
+        type: "reply",
+        text: UNSUPPORTED_ATTACHMENT,
+      });
+      expect(model.requests).toHaveLength(0);
+    });
+
+    it("scores a later correction on the trace of the turn that logged the entry", async () => {
+      const [run] = await db
+        .insert(agentRuns)
+        .values({
+          agent: "copilot",
+          trigger: "telegram",
+          status: "succeeded",
+          traceId: "trace-logged",
+        })
+        .returning();
+      const [entry] = await db
+        .insert(wasteEntries)
+        .values({
+          outletId: ids.outletA,
+          itemId: ids.nasi,
+          weightKg: "0.600",
+          portionCount: 3,
+          cause: "over_prep",
+          source: "text",
+          confirmedBy: ids.staffA,
+          runId: run!.id,
+          loggedAt: new Date("2026-03-02T12:00:00Z"),
+        })
+        .returning();
+      const model = new ScriptedModel([
+        {
+          toolCall: { name: "update_entry", input: { id: entry!.id, patch: { portion_count: 5 } } },
+        },
+        { text: "Sudah diperbaiki." },
+      ]);
+      await handler(model, new RecordingObserver())(message("kemarin nasinya 5 porsi, bukan 3"));
+      expect(scorer.scores).toEqual([
+        {
+          traceId: "trace-logged",
+          name: "waste_entry_corrected",
+          value: 1,
+          metadata: { fields: ["portion_count", "weight_kg"], user_id: ids.staffA },
+        },
+      ]);
+    });
   });
 });

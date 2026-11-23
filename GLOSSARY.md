@@ -26,6 +26,14 @@ _Avoid_: Cron agent, batch job
 One record of food a kitchen threw away: which menu item, how much (kg, and portions when counted), why, and when.
 _Avoid_: Waste log, waste record
 
+**Waste guess**:
+What the Kitchen Copilot read from a photo or a text message about binned food, before anyone confirms it. It is shown to the user and never counts in reports.
+_Avoid_: Draft, proposal, prediction
+
+**Confirmation**:
+A user's tap that turns a waste guess into a waste entry. Any role can confirm; it is not an approval.
+_Avoid_: Approval, sign-off
+
 **Waste cause**:
 The reason food was thrown away: over-prep, spoilage, plate waste, prep error or expired.
 _Avoid_: Reason, category

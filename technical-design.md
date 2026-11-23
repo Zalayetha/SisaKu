@@ -120,7 +120,7 @@ Eleven tables in one Postgres database (RAG chunks live in Qdrant, not Postgres)
 | `menu_items` | id, outlet_id, name, category, cost_per_portion, portion_weight_kg, food_category |
 | `sales` | outlet_id, item_id, date, qty_sold |
 | `prep_logs` | outlet_id, item_id, date, qty_prepped |
-| `waste_entries` | id, outlet_id, item_id, logged_at, weight_kg, portion_count, cause, source (photo / text), photo_url, confidence, confirmed_by → users |
+| `waste_entries` | id, outlet_id, item_id, logged_at, weight_kg, portion_count, cause, source (photo / text), photo_path, confidence, confirmed_by → users, run_id → agent_runs |
 | `forecasts` | id, run_id, outlet_id, item_id, date, baseline_qty, adjusted_qty, reason, model |
 | `recommendations` | id, run_id, forecast_id, prep_qty, confidence, status (pending / approved / rejected), approved_by → users |
 | `pickup_requests` | id, outlet_id, foodbank_id, items, status, created_at, approved_by → users |

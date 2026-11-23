@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import type { McpServer } from "@anvia/core/mcp";
 import { McpClient, McpClientGroup, type McpClientTransport } from "@anvia/mcp";
 
 type ServerConfig = {
@@ -88,4 +89,36 @@ export function connectMcpServers(env: NodeJS.ProcessEnv = process.env) {
         }),
     ),
   });
+}
+
+/**
+ * Calls an MCP tool from fixed code (not the model) and returns its JSON result. Used for
+ * tools the model must never call itself, such as `log_waste` (ADR 0014). Throws on a tool error.
+ */
+export async function callMcpTool<T = unknown>(
+  servers: readonly McpServer[],
+  remoteName: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  const tool = servers
+    .flatMap((server) => server.tools)
+    .find((t) => t.mcp.remoteName === remoteName);
+  if (!tool) throw new Error(`MCP tool ${remoteName} is not available`);
+  return parseToolJson<T>(await tool.call(args));
+}
+
+/**
+ * The JSON object in an MCP tool result: `@anvia/mcp` returns rich output whose text content parts
+ * hold the server's JSON.
+ */
+export function parseToolJson<T = unknown>(result: unknown): T {
+  const content =
+    typeof result === "object" && result !== null && "content" in result ? result.content : result;
+  const parts: unknown[] = Array.isArray(content) ? content : [content];
+  const text = parts
+    .map((part) =>
+      typeof part === "object" && part !== null && "text" in part ? String(part.text) : "",
+    )
+    .join("");
+  return JSON.parse(text) as T;
 }
