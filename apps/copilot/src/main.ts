@@ -1,6 +1,7 @@
 import { connectMcpServers, createLens, createModel } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
 import { sql } from "drizzle-orm";
+import { createChartRenderer } from "./charts/render";
 import { ChatHistory } from "./history";
 import { createTelegramService } from "./telegram";
 import { createTurnHandler } from "./turn";
@@ -14,6 +15,7 @@ const model = createModel();
 const lens = createLens("sisaku-copilot");
 // The photos volume (ADR 0010); confirmed waste photos are written here.
 const photos = await createPhotoStore(process.env.PHOTOS_DIR);
+const charts = await createChartRenderer();
 const { db, pool } = createDb();
 await db.execute(sql`select 1`);
 const mcp = await connectMcpServers();
@@ -29,6 +31,7 @@ const service = createTelegramService({
     observer: lens.observer({ captureMode: "safe" }),
     history: new ChatHistory(20),
     photos,
+    charts,
     scorer: { score: (args) => lens.score(args) },
   }),
 });

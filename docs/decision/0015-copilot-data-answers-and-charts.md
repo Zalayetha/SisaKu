@@ -17,6 +17,20 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 
 - Rule 10: call `query_waste` grouped by day for the item over the period asked plus the 14 days before it, then `get_sales` for the same item and days, then `query_waste` grouped by cause for the item over the period asked and over the 14 days before it, and compare. A cause is named only as "likely", and only when the data shows it (a sales drop or a change of waste cause). At most 5 tool calls for one question. This mirrors the nightly pipeline's Analyze step.
 
+**The model asks for a chart; fixed code queries and draws it**
+
+- A local tool, `send_chart`, takes a query, never numbers. Its three kinds are:
+  - `waste_trend`: waste per outlet-local day, in kg or estimated Rupiah, optionally for one item or cause;
+  - `waste_vs_sales`: one item, with waste portions above sales portions on the same days;
+  - `waste_breakdown`: the top 10 items or causes.
+- A chart covers at most 92 days (the `get_sales` limit, ADR 0009). Fixed code calls `query_waste` and `get_sales` for the sender's outlet and fills days without data with zero. No free-form specs.
+- The tool returns `{ sent: true, title, note }`. With no data, or a range of a single day (a trend or waste-vs-sales chart), it returns `{ sent: false, reason: "no_data" }` and draws nothing. Invalid input, an item that is not on the outlet's menu, a second chart in the same turn, or a render failure return an error, so the model answers in text.
+- Rule 11: use a chart for trends and comparisons, or when the user asks for one (then `send_chart` comes first). Simple totals are answered in text. The reply still gives the key numbers and does not describe the chart.
+- Rendering is Vega-Lite → SVG → PNG with `@resvg/resvg-js`, inside the copilot process, so no outlet data goes to a chart service. resvg loads only the bundled Noto Sans (OFL, in `apps/copilot/assets/fonts`), because a slim container has no system fonts. Labels and titles are fixed Bahasa Indonesia, with Indonesian number format.
+- The renderer is a turn dependency (a spec in, PNG bytes out), like the photo store and the scorer, so tests check the spec's data rows against the database.
+- Delivery: the text reply goes first, then the chart as a photo. The Anvia Telegram adapter sends attachments without a caption, so the title is drawn on the chart instead. A failed photo send is logged; the text is already delivered.
+- Any role may ask data questions and get charts, cost included (ADR 0012).
+
 **Instruction versions and their changelog**
 
 - `COPILOT_INSTRUCTIONS_VERSION` covers the instructions and every tool description the model sees. Every change bumps it and adds an entry, newest first, to `packages/agents/INSTRUCTIONS-CHANGELOG.md`. Each entry gives the date, issue, a fingerprint of the instructions text, rule text, why, and the eval it should move. A test fails when the newest entry's version does not match the constant, or when its fingerprint (SHA-256 of `COPILOT_INSTRUCTIONS`, first 16 hex characters) does not match the current text, so an instruction edit without a new version cannot pass. Tool descriptions are not fingerprinted; their bumps stay by hand. `AGENTS.md` states the rule.
@@ -25,4 +39,6 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 ## Consequences
 
 - With the menu in context, a data question's first call is the data tool itself, and one round trip is saved. The cost is one `get_menu` call and a few hundred tokens of menu in every turn.
+- Chart numbers always match the database, and the model cannot draw what it did not query. Asking for a kind of chart that does not exist means adding a kind in code.
+- `vega`, `vega-lite` and `@resvg/resvg-js` (a prebuilt native binary) are new copilot dependencies, and the fonts add about 1.2 MB to the repo.
 - Copilot turns without a saved waste guess still write no `agent_runs` row, so for those the version is only in Lens. The eval harness should record the version with each result.

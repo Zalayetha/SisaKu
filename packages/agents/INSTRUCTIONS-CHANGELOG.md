@@ -11,6 +11,21 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-23.2
+
+- Date: 2026-11-23
+- Issue: ZALS-17 (ADR 0015)
+- Fingerprint: `7a5427ef17aa9135`
+- Added, rule 11: Charts: send_chart sends one chart after the reply, at most one per turn. Use
+  it for trends or comparisons, or when asked (then call send_chart first); simple totals in
+  text only. The reply still gives the key numbers and does not describe the chart. On
+  `sent: false`, answer in text only.
+- Added tool: `send_chart` (kinds `waste_trend`, `waste_vs_sales`, `waste_breakdown`; the model
+  passes a query, never numbers).
+- Why: a trend or comparison reads better as a chart on a phone, and chart numbers must come
+  from the database, not from the model.
+- Eval to move: tool-call correctness (explicit chart requests expect `send_chart` first).
+
 ## 2026-11-23.1
 
 - Date: 2026-11-23
