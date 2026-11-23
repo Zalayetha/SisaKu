@@ -15,6 +15,7 @@ version for those by hand.
 
 - Date: 2026-11-23
 - Issue: ZALS-17 (ADR 0015)
+- Fingerprint: `5f7e47254eae63c4`
 - Changed, rule 8: "call get_menu, then propose_waste_entry" → "call propose_waste_entry"; item
   ids come "from the menu below" instead of "from get_menu".
 - Added, turn context: `Menu (item id: name): <id>: <name>; …`, the outlet's menu, names and
