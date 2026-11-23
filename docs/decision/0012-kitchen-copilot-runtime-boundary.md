@@ -14,7 +14,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 **Tool allowlist**
 
 - The Copilot's tools come from one deny-by-default allowlist in `packages/agents`. MCP tools not on it are dropped before the agent sees them, so a tool added to a server later stays hidden until someone adds it on purpose.
-- Final list: `get_menu`, `get_sales`, `get_prep_log`, `query_waste`, `get_factor`, `compute_co2e`, `log_waste`, `update_entry`, `submit_pickup`. ZALS-15 enables only the read tools; ZALS-16 adds `update_entry`, while `log_waste` is called only by fixed code after a confirmation (amended by ADR 0014).
+- Final list: `get_menu`, `get_sales`, `get_prep_log`, `query_waste`, `get_factor`, `compute_co2e`, `log_waste`, `update_entry`, `submit_pickup`. ZALS-15 enables only the read tools; ZALS-16 adds `update_entry`, while `log_waste` is called only by fixed code after a confirmation (amended by ADR 0014). ZALS-17 adds `list_entries` (ADR 0015).
 - `draft_pickup` is denied. Drafting pickups from surplus belongs to the nightly pipeline, and keeping it out of the chat means a message cannot fill the approval queue. `submit_pickup` is still guarded by the server's approval check (ADR 0011). Revisit if surplus routing (ZALS-28) is built.
 - Every role gets the same tools. The role is passed to the agent as context, so it can explain that only a manager or owner can approve.
 

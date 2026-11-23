@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { COPILOT_TOOL_ALLOWLIST } from "./allowlist";
 
 describe("Copilot tool allowlist", () => {
-  it("lists exactly the read tools plus update_entry", () => {
+  it("lists exactly the read tools, list_entries and update_entry", () => {
     expect([...COPILOT_TOOL_ALLOWLIST].sort()).toEqual([
       "compute_co2e",
       "get_factor",
       "get_menu",
       "get_prep_log",
       "get_sales",
+      "list_entries",
       "query_waste",
       "update_entry",
     ]);
