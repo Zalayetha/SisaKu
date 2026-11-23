@@ -4,6 +4,7 @@ import {
   getPrepLog,
   getSales,
   KitchenError,
+  listEntries,
   logWaste,
   queryWaste,
   updateEntry,
@@ -101,6 +102,18 @@ export function createKitchenServer(db: Db) {
       annotations: read,
     },
     handle(db, queryWaste),
+  );
+
+  server.registerTool(
+    "list_entries",
+    {
+      title: "List waste entries",
+      description: `Single waste entries of one outlet over local days, newest first, each with its id, item, time, kg, portions and cause; optionally for one item or cause. At most ${s.MAX_LISTED_ENTRIES} entries (truncated is true when more matched). Use it to find the entry to correct with update_entry; use query_waste for totals.`,
+      inputSchema: s.listEntriesInput,
+      outputSchema: s.listEntriesOutput,
+      annotations: read,
+    },
+    handle(db, listEntries),
   );
 
   server.registerTool(

@@ -6,12 +6,13 @@ import {
   getPrepLog,
   getSales,
   KitchenError,
+  listEntries,
   logWaste,
   queryWaste,
   updateEntry,
   type Db,
 } from "./kitchen";
-import type { LogWasteInput } from "./schemas";
+import { MAX_LISTED_ENTRIES, type LogWasteInput } from "./schemas";
 import { ids, setupTestDb, testDbUrl, unknownId } from "./test-fixture";
 
 type TestPool = Awaited<ReturnType<typeof setupTestDb>>["pool"];
@@ -210,6 +211,64 @@ describe.skipIf(!testDbUrl)("kitchen tools", () => {
         queryWaste(db, { filters: { ...filters, item_id: ids.soto }, group_by: "none" }),
         /not on the menu/,
       );
+    });
+  });
+
+  describe("list_entries", () => {
+    const range = { outlet_id: A, from: "2026-03-01", to: "2026-03-02" };
+
+    it("lists the outlet's entries on its local days, newest first, with their ids", async () => {
+      const r = await listEntries(db, range);
+      expect(r.timezone).toBe("Asia/Jakarta");
+      expect(r.truncated).toBe(false);
+      // Outlet B's soto on 03-01 never appears.
+      expect(r.entries).toEqual([
+        {
+          id: ids.wasteRendangDay2,
+          item_id: ids.rendang,
+          item_name: "Rendang Sapi",
+          logged_at: "2026-03-02T05:00:00.000Z",
+          local_date: "2026-03-02",
+          weight_kg: 0.24,
+          portion_count: null,
+          cause: "plate_waste",
+          source: "text",
+        },
+        expect.objectContaining({ id: ids.wasteNasiDay2, local_date: "2026-03-02" }),
+        expect.objectContaining({ id: ids.wasteRendangDay1, portion_count: 3, weight_kg: 0.36 }),
+      ]);
+    });
+
+    it("narrows to one item or cause", async () => {
+      const rendang = await listEntries(db, { ...range, item_id: ids.rendang });
+      expect(rendang.entries.map((e) => e.id)).toEqual([
+        ids.wasteRendangDay2,
+        ids.wasteRendangDay1,
+      ]);
+      const spoiled = await listEntries(db, { ...range, cause: "spoilage" });
+      expect(spoiled.entries.map((e) => e.id)).toEqual([ids.wasteNasiDay2]);
+    });
+
+    it(`returns at most ${MAX_LISTED_ENTRIES} entries and says when there are more`, async () => {
+      await db.insert(wasteEntries).values(
+        Array.from({ length: MAX_LISTED_ENTRIES + 1 }, (_, i) => ({
+          outletId: A,
+          itemId: ids.nasi,
+          loggedAt: new Date(Date.UTC(2026, 0, 15, 1, i)),
+          weightKg: "0.200",
+          portionCount: 1,
+          cause: "over_prep",
+          source: "text" as const,
+        })),
+      );
+      const r = await listEntries(db, { outlet_id: A, from: "2026-01-15", to: "2026-01-15" });
+      expect(r.entries).toHaveLength(MAX_LISTED_ENTRIES);
+      expect(r.truncated).toBe(true);
+      expect(r.entries[0]!.logged_at).toBe(`2026-01-15T01:${MAX_LISTED_ENTRIES}:00.000Z`);
+    });
+
+    it("rejects an item from another outlet", async () => {
+      await rejects(listEntries(db, { ...range, item_id: ids.soto }), /not on the menu/);
     });
   });
 

@@ -9,7 +9,7 @@
 
 ## Decision
 
-- **Tools only.** `get_sales`, `get_menu`, `get_prep_log`, `log_waste`, `query_waste`, `update_entry`. The two resources in the design (menu, waste cause list) are dropped for the MVP: agent clients call tools, not resources. `get_menu` covers the menu, and the cause list is the `cause` enum in the tool input schemas.
+- **Tools only.** `get_sales`, `get_menu`, `get_prep_log`, `log_waste`, `query_waste`, `update_entry`, and `list_entries` (single entries with ids for corrections, at most 20; amended by ADR 0015). The two resources in the design (menu, waste cause list) are dropped for the MVP: agent clients call tools, not resources. `get_menu` covers the menu, and the cause list is the `cause` enum in the tool input schemas.
 - **Outlet scope.** Every tool takes `outlet_id`. The server trusts it but checks that the outlet exists and that every item, user and waste entry belongs to it. Mapping a Telegram user to an outlet and each agent's tool allowlist stay in the agent layer. The composite foreign keys (ADR 0008) are the last line of defence.
 - **Outlet-local days.** `query_waste` dates are calendar days in `outlets.timezone` (Asia/Jakarta), so waste logged at 21:00 lands on that day, not on the next UTC day.
 - **Waste is the only editable data.** Sales come from the POS and prep logs are imported; they are read-only here and are corrected by re-importing a CSV (ADR 0007). `update_entry` edits waste entries only and returns the entry before and after, so the agent can record the correction as feedback in Anvia Lens. The server writes no feedback itself.

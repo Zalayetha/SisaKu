@@ -38,12 +38,13 @@ describe("kitchen-mcp protocol, without a database", () => {
     await client.close();
   });
 
-  it("lists the six tools with input and output schemas", async () => {
+  it("lists the seven tools with input and output schemas", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "get_menu",
       "get_prep_log",
       "get_sales",
+      "list_entries",
       "log_waste",
       "query_waste",
       "update_entry",
@@ -299,6 +300,12 @@ describe.skipIf(!testDbUrl)("kitchen-mcp protocol, with Postgres", () => {
       group_by: "none",
     });
     expect(r.groups).toEqual([{ waste_kg: 1.6, entries: 3, portions: 10, cost_idr: 77500 }]);
+  });
+
+  it("list_entries", async () => {
+    const r = await call("list_entries", { outlet_id: A, from: "2026-03-01", to: "2026-03-01" });
+    expect(r.entries.map((e: { item_name: string }) => e.item_name)).toEqual(["Rendang Sapi"]);
+    expect(r.truncated).toBe(false);
   });
 
   it("log_waste and update_entry", async () => {
