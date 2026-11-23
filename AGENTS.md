@@ -113,7 +113,7 @@ the new value.
 
 ### Issue tracker
 
-Issues live in the Multica project "SisaKu" (workspace Zalsoft Technology, `ZALS-*` keys), managed with the `multica` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues on `Zalayetha/SisaKu`, managed with the `gh` CLI. Older `ZALS-*` keys come from Multica, where issues were tracked until 2026-11-23. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

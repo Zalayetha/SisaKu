@@ -1,6 +1,6 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker (the Multica workspace Zalsoft Technology; see `issue-tracker.md`).
+The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker (GitHub Issues on `Zalayetha/SisaKu`; see `issue-tracker.md`).
 
 | Label in mattpocock/skills | Label in our tracker | Meaning                                  |
 | -------------------------- | -------------------- | ---------------------------------------- |
@@ -12,6 +12,6 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
-Multica attaches labels by ID: look the ID up with `multica label list`. Labels are workspace-wide, so they are shared with the other projects in the workspace.
+All five labels exist on the repo; list them with `gh label list`. Apply one by name with `gh issue edit <n> --add-label <name>`.
 
 Edit the "Label in our tracker" column to match whatever vocabulary you actually use.

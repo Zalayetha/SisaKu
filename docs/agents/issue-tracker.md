@@ -1,47 +1,49 @@
-# Issue tracker: Multica
+# Issue tracker: GitHub Issues
 
-Issues and specs for this repo live in the **SisaKu** project of the Multica
-workspace **Zalsoft Technology** (`zalsoft-studio`). Use the `multica` CLI for
-all operations. Issues are referenced by key (e.g. `ZALS-32`); commands accept a
-key or a full UUID.
+Issues and specs for this repo live in GitHub Issues on `Zalayetha/SisaKu`. Use
+the `gh` CLI for all operations. Issues are referenced by number (e.g. `#32`).
 
-- Workspace ID: `c4f6176a-3152-46f5-8722-2195788c228e`
-- Project ID: `1f2fb8bf-bf7d-4e40-87b7-889dfda9ea3f`
+## Old `ZALS-*` keys
 
-The CLI acts on the current default workspace. Before the first write of a
-session, check it with `multica workspace list` (the `*` row must be Zalsoft
-Technology), or pass `--workspace-id c4f6176a-3152-46f5-8722-2195788c228e`.
-Never write into another workspace (e.g. C3ARBON).
+Until 2026-11-23 issues lived in Multica with `ZALS-*` keys, and older ADRs,
+commits and PRs still use them. Every Multica issue was moved with its
+description and comments; the GitHub title keeps the key, e.g.
+`[ZALS-17] ...`. For ZALS-9 to ZALS-36, the issue number is the key plus 15
+(ZALS-17 is #32). Find one with `gh issue list --search "ZALS-17 in:title" --state all`.
+Multica is no longer updated.
 
-## Agent runs
+## Mentions
 
-Multica starts agent runs on some changes. Changing an issue's status or
-assignee can start a run. Pass `--no-start` to `multica issue status`, `multica issue update` and
-`multica issue assign` unless the user asks for a run.
+GitHub notifies anyone written as a bare `@name` in an issue or comment. Write
+roles, placeholders and package names (`@types/node`, `@anvia/core`) in
+backticks.
 
 ## Conventions
 
-- **Create an issue**: `multica issue create --project 1f2fb8bf-bf7d-4e40-87b7-889dfda9ea3f --title "..." --description-stdin <<'EOF' ... EOF`. Optional: `--priority`, `--parent <key>`, `--assignee`, `--due-date YYYY-MM-DD`.
-- **Read an issue**: `multica issue get <key>`, then `multica issue comment list <key>` for comments.
-- **List issues**: `multica issue list --project 1f2fb8bf-bf7d-4e40-87b7-889dfda9ea3f --output json --fields identifier,title,status,priority,labels,description` with `--status`, `--assignee` and `--limit`/`--offset` as needed.
-- **Search**: `multica issue search "<text>"`.
-- **Make an issue a sub-issue of a parent**: `--parent <parent-key>` on `create`, or `multica issue update <child> --parent <parent-key>` afterwards. List them with `multica issue children <parent-key>`. Use `--stage <n>` only when the parent needs ordered groups of sub-issues.
-- **Blocking**: the CLI has no dependency command. Put a `Blocked by: ZALS-n, ZALS-m` line at the top of the blocked issue's description. An issue is unblocked when every blocker's status is `done` or `cancelled`.
-- **Comment on an issue**: `multica issue comment add <key> --content-stdin <<'EOF' ... EOF`.
-- **Apply / remove labels**: labels are attached by ID. Find it with `multica label list`, then `multica issue label add <key> <label-id>` / `multica issue label remove <key> <label-id>`.
-- **Status**: `multica issue status <key> <status> --no-start`. Statuses in use: `backlog`, `done`, `cancelled`.
-- **Close**: post the explanation as a comment, then `multica issue status <key> done --no-start` (or `cancelled`). For duplicates: `multica issue status <key> cancelled --duplicate-of <original-key> --no-start`.
+- **Create an issue**: `gh issue create --title "..." --body-file - <<'EOF' ... EOF`. Optional: `--label`, `--assignee`, `--milestone`.
+- **Read an issue**: `gh issue view <n> --comments`.
+- **List issues**: `gh issue list --state open --json number,title,labels,body` with `--label`, `--assignee`, `--search` and `--limit` as needed.
+- **Search**: `gh issue list --search "<text>" --state all`.
+- **Sub-issues**: link a child under a parent with `gh api -X POST repos/Zalayetha/SisaKu/issues/<parent>/sub_issues -F sub_issue_id=<child id>`, where the child id is `gh api repos/Zalayetha/SisaKu/issues/<child> --jq .id` (the database id, not the number). List them with `gh api repos/Zalayetha/SisaKu/issues/<parent>/sub_issues --jq '.[].number'`.
+- **Blocking**: put a `Blocked by: #n, #m` line at the top of the blocked issue's body. An issue is unblocked when every blocker is closed.
+- **Comment on an issue**: `gh issue comment <n> --body-file - <<'EOF' ... EOF`.
+- **Apply / remove labels**: `gh issue edit <n> --add-label <name>` / `--remove-label <name>`.
+- **Priority**: one of the labels `priority:high`, `priority:medium`, `priority:low`.
+- **Status**: open issues are the backlog. There is no separate status field.
+- **Close**: post the explanation as a comment, then `gh issue close <n> --reason completed` (or `--reason "not planned"`). For duplicates: `gh issue close <n> --reason duplicate --duplicate-of <original>`. A PR body with `Closes #n` closes the issue when it merges.
 
-Pull requests live on GitHub (`Zalayetha/SisaKu`). List the PRs linked to an
-issue with `multica issue pull-requests <key>`.
+## Automation
+
+The Pullfrog app runs its workflow whenever an issue is opened, and comments on
+the issue. Expect one bot comment on every new issue.
 
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag. PRs live on GitHub, so use the `gh pr` commands for them.)_
+**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag. Use the `gh pr` commands for them.)_
 
 ## When a skill says "publish to the issue tracker"
 
-Create a Multica issue in the SisaKu project, as in **Create an issue** above.
+Create a GitHub issue, as in **Create an issue** above.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -52,8 +54,8 @@ Read it as in **Read an issue** above.
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
 
 - **Map**: one issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body.
-- **Child ticket**: a sub-issue of the map (`--parent <map-key>`), labelled `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, it is assigned to the driving dev.
+- **Child ticket**: a sub-issue of the map (see **Sub-issues**), labelled `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, it is assigned to the driving dev.
 - **Blocking**: see **Blocking** under Conventions.
-- **Frontier query**: `multica issue children <map-key>`, keep the open ones (not `done`/`cancelled`), and drop any with an open blocker or an assignee. The first in map order wins.
-- **Claim**: `multica issue assign <key> --to <name> --no-start`. This is the session's first write.
-- **Resolve**: post the answer as a comment, then `multica issue status <key> done --no-start`, then append a context pointer (gist + key) to the map's Decisions-so-far.
+- **Frontier query**: list the map's sub-issues, keep the open ones, and drop any with an open blocker or an assignee. The first in map order wins.
+- **Claim**: `gh issue edit <n> --add-assignee <login>`. This is the session's first write.
+- **Resolve**: post the answer as a comment, then `gh issue close <n> --reason completed`, then append a context pointer (gist + number) to the map's Decisions-so-far.
