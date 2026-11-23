@@ -15,6 +15,7 @@ version for those by hand.
 
 - Date: 2026-11-23
 - Issue: ZALS-17 (ADR 0015, amends ADR 0009)
+- Fingerprint: `47a4f3e867dec08d`
 - Changed, rule 9: "use query_waste to find the entry if needed, then update_entry" → "find the
   entry with list_entries (narrow it by day, item or cause), then update_entry with its id. If
   several entries could match, ask the user which one."
