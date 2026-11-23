@@ -91,9 +91,10 @@ export function createChartTool(ctx: ChartContext) {
     async handler(args): Promise<Result> {
       if (ctx.turn.chart) return fail("only one chart per turn; one is already being sent");
       if (args.from > args.to) return fail("from must be on or before to");
+      // Check the span by arithmetic before listing its days: any four-digit year is valid.
+      const span = (Date.parse(args.to) - Date.parse(args.from)) / 86_400_000 + 1;
+      if (span > MAX_CHART_DAYS) return fail(`a chart covers at most ${MAX_CHART_DAYS} days`);
       const days = daysBetween(args.from, args.to);
-      if (days.length > MAX_CHART_DAYS)
-        return fail(`a chart covers at most ${MAX_CHART_DAYS} days`);
       const item = args.item_id ? ctx.menu.find((m) => m.id === args.item_id) : undefined;
       if (args.item_id && !item)
         return fail(`item_id ${args.item_id} is not on this outlet's menu`);

@@ -574,6 +574,17 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(result).toMatchObject({ chart: { title: "Limbah per hari (kg), 10–12 Feb 2026" } });
     });
 
+    it("refuses a range of thousands of years at once, without walking its days", async () => {
+      const model = chartTurn({ kind: "waste_trend", from: "0001-01-01", to: "9999-12-31" });
+      const started = performance.now();
+      expect(await handler(model, new RecordingObserver())(message("semua?"))).not.toHaveProperty(
+        "chart",
+      );
+      expect(model.lastToolResult()).toContain("92 days");
+      // Building the 3.65M day strings first takes seconds and stalls every chat in the process.
+      expect(performance.now() - started).toBeLessThan(500);
+    });
+
     it("rejects an impossible date instead of shifting or emptying the chart", async () => {
       const model = chartTurn(
         { kind: "waste_trend", from: "2026-02-10", to: "2026-13-01" },
