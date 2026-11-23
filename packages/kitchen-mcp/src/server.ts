@@ -44,7 +44,7 @@ export function createKitchenServer(db: Db) {
     "get_sales",
     {
       title: "Get sales",
-      description: `Portions sold per menu item per day for one outlet, from the POS. Dates are inclusive; at most ${s.MAX_SALES_RANGE_DAYS} days per call. Use item_id from get_menu to narrow to one item.`,
+      description: `Portions sold per menu item per day for one outlet, from the POS. Dates are inclusive; at most ${s.MAX_SALES_RANGE_DAYS} days per call. Give item_id to narrow to one item.`,
       inputSchema: s.getSalesInput,
       outputSchema: s.getSalesOutput,
       annotations: read,
@@ -57,7 +57,7 @@ export function createKitchenServer(db: Db) {
     {
       title: "Get menu",
       description:
-        "Menu items of one outlet with id, category, cost per portion (Rupiah), portion weight (kg) and food category. Call this to turn an item name into the item_id other tools need.",
+        "Menu items of one outlet with id, category, cost per portion (Rupiah), portion weight (kg) and food category.",
       inputSchema: s.getMenuInput,
       outputSchema: s.getMenuOutput,
       annotations: read,

@@ -36,7 +36,7 @@ export const getSalesInput = z
     outlet_id: uuid,
     from: isoDate.describe("First day, inclusive (YYYY-MM-DD)"),
     to: isoDate.describe(`Last day, inclusive (YYYY-MM-DD); at most ${MAX_SALES_RANGE_DAYS} days`),
-    item_id: uuid.optional().describe("Only this menu item (id from get_menu)"),
+    item_id: uuid.optional().describe("Only this menu item (its id)"),
   })
   .refine((v) => v.from <= v.to, { message: "from must be on or before to", path: ["to"] });
 
@@ -52,7 +52,7 @@ export const MAX_WASTE_LINES = 5;
 
 const wasteLine = z
   .object({
-    item_id: uuid.describe("Menu item id from get_menu"),
+    item_id: uuid.describe("Menu item id"),
     portion_count: portionCount
       .optional()
       .describe("Portions wasted; the server converts to kg with the item's portion weight"),

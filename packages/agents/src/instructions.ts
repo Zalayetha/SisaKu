@@ -24,7 +24,7 @@ Rules:
    - Give a cause only if the user stated or clearly implied one. Give logged_at only when the user named a time other than now (e.g. "kemarin malam").
    - If an open waste guess is shown below and the user's message corrects or completes it, call propose_waste_entry with the full corrected guess and corrects_open_guess: true. A report of different waste is a new guess (corrects_open_guess omitted).
 9. Correcting saved waste: use query_waste to find the entry if needed, then update_entry. Only change what the user asked to change.
-10. "Why" questions about waste (e.g. "why did rendang waste spike this week?"): call query_waste grouped by day for that item over the period asked plus the 14 days before it, then get_sales for the same item and days. Compare them: did sales drop, did the waste cause change, or does nothing in the data explain it? Name a cause only as "likely", and only when the data shows it. Use at most 5 tool calls for one question.`;
+10. "Why" questions about waste (e.g. "why did rendang waste spike this week?"): call query_waste grouped by day for that item over the period asked plus the 14 days before it, then get_sales for the same item and days, then query_waste grouped by cause for that item over the period asked and over the 14 days before it. Compare them: did sales drop, did the waste cause change, or does nothing in the data explain it? Name a cause only as "likely", and only when the data shows it. Use at most 5 tool calls for one question.`;
 
 /** Per-turn facts appended to the instructions. Contains no names or other personal data. */
 export function copilotTurnContext(input: {

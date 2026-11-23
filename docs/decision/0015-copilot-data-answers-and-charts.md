@@ -11,11 +11,11 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 
 **The menu is in the turn context**
 
-- Each turn reads the outlet's menu once and puts its names and ids in the instructions' turn context. Rule 8 now says "call propose_waste_entry" instead of "call get_menu, then propose_waste_entry", and `propose_waste_entry` uses the same menu. `get_menu` stays available for cost, weight and food category.
+- Each turn reads the outlet's menu once and puts its names and ids in the instructions' turn context. Rule 8 now says "call propose_waste_entry" instead of "call get_menu, then propose_waste_entry", and `propose_waste_entry` uses the same menu. `get_menu` stays available for cost, weight and food category; kitchen-mcp's tool descriptions no longer send the model to it for item ids, in neutral wording because the nightly pipeline shares them.
 
 **"Why" questions follow a fixed recipe**
 
-- Rule 10: call `query_waste` grouped by day for the item over the period asked plus the 14 days before it, then `get_sales` for the same item and days, and compare. A cause is named only as "likely", and only when the data shows it (a sales drop or a change of waste cause). At most 5 tool calls for one question. This mirrors the nightly pipeline's Analyze step.
+- Rule 10: call `query_waste` grouped by day for the item over the period asked plus the 14 days before it, then `get_sales` for the same item and days, then `query_waste` grouped by cause for the item over the period asked and over the 14 days before it, and compare. A cause is named only as "likely", and only when the data shows it (a sales drop or a change of waste cause). At most 5 tool calls for one question. This mirrors the nightly pipeline's Analyze step.
 
 **Instruction versions and their changelog**
 
