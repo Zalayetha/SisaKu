@@ -599,7 +599,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         { text: "ok" },
         propose({
           lines: [{ item_id: ids.nasi, portion_count: 4 }],
-          cause: "spoilage",
+          cause: "plate_waste",
           corrects_open_guess: true,
         }),
         { text: "ok" },
@@ -608,11 +608,14 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       const card = await handle(photoMessage(), io);
       expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(SAVE_FAILED_TEXT);
       await handle(tap(button(card, "Ubah")));
-      const corrected = await handle(message("4 porsi"));
+      const corrected = await handle(message("4 porsi, sisa piring"));
       const saved = editOf(await handle(tap(button(corrected, "Simpan"))));
 
       // The first save had gone through: its entry is shown as stored, and nothing is logged again.
       expect(saved.text).toContain("Nasi Putih: 3 porsi");
+      // The cause line, too, is the stored one, not the correction's.
+      expect(saved.text).toContain("Penyebab: Basi");
+      expect(saved.text).not.toContain("Sisa piring");
       const runs = await db
         .select()
         .from(agentRuns)

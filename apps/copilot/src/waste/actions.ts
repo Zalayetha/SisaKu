@@ -44,6 +44,7 @@ type SavedEntry = {
   item_name: string;
   weight_kg: number;
   portion_count: number | null;
+  cause: string;
 };
 
 /**
@@ -89,7 +90,7 @@ export async function handleWasteAction(
     try {
       const entries = await saveGuess(guess, deps);
       deps.store.settle(guess.id, "saved");
-      return { edit: savedCard(guess, entries) };
+      return { edit: savedCard(entries) };
     } catch (error) {
       // kitchen-mcp saved no line, so the guess stays open and Simpan can be tapped again.
       deps.log("Saving a waste guess failed", error);
@@ -148,6 +149,7 @@ async function entriesOfRun(db: Db, runId: string): Promise<SavedEntry[]> {
       item_name: menuItems.name,
       weight_kg: wasteEntries.weightKg,
       portion_count: wasteEntries.portionCount,
+      cause: wasteEntries.cause,
     })
     .from(wasteEntries)
     .innerJoin(menuItems, eq(menuItems.id, wasteEntries.itemId))

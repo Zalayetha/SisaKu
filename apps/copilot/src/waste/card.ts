@@ -103,16 +103,22 @@ function summary(guess: WasteGuess, today: string): string {
   return ["Limbah yang dicatat:", ...lines, cause, when].filter(Boolean).join("\n");
 }
 
-/** The card once saved: weights as stored, no buttons. */
+/** The card once saved: what was stored (items, weights, cause), no buttons. */
 export function savedCard(
-  guess: WasteGuess,
-  entries: readonly { item_name: string; weight_kg: number; portion_count: number | null }[],
+  entries: readonly {
+    item_name: string;
+    weight_kg: number;
+    portion_count: number | null;
+    cause: string;
+  }[],
 ): Card {
   const lines = entries.map(
     (e, i) =>
       `${i + 1}. ${e.item_name}: ${e.portion_count !== null ? `${e.portion_count} porsi, ` : ""}${kg(e.weight_kg)}`,
   );
-  const cause = guess.cause ? [`Penyebab: ${CAUSE_LABELS[guess.cause]}`] : [];
+  // One Simpan stores one cause for every line.
+  const stored = entries[0]?.cause;
+  const cause = stored ? [`Penyebab: ${CAUSE_LABELS[stored as WasteCause] ?? stored}`] : [];
   return { text: ["Tersimpan ✓", ...lines, ...cause].join("\n") };
 }
 
