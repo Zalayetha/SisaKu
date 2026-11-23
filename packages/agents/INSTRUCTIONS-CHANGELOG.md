@@ -15,6 +15,7 @@ version for those by hand.
 
 - Date: 2026-11-23
 - Issue: ZALS-17 (ADR 0015)
+- Fingerprint: `7a5427ef17aa9135`
 - Added, rule 11: Charts: send_chart sends one chart after the reply, at most one per turn. Use
   it for trends or comparisons, or when asked (then call send_chart first); simple totals in
   text only. The reply still gives the key numbers and does not describe the chart. On
