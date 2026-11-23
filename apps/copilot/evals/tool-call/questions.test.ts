@@ -5,6 +5,7 @@ import {
   getMenuInput,
   getPrepLogInput,
   getSalesInput,
+  listEntriesInput,
   queryWasteInput,
   updateEntryInput,
 } from "@sisaku/kitchen-mcp";
@@ -55,6 +56,7 @@ const TOOLS: Record<string, { schema: ZodType; filler: Record<string, unknown> }
     schema: queryWasteInput,
     filler: { filters: { outlet_id: OUTLET, from: day, to: day }, group_by: "none" },
   },
+  list_entries: { schema: listEntriesInput, filler: { outlet_id: OUTLET, from: day, to: day } },
   update_entry: {
     schema: updateEntryInput,
     filler: { outlet_id: OUTLET, id: OUTLET, patch: {} },

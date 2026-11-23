@@ -8,6 +8,19 @@ checks that the newest entry matches the constant.
 Each entry gives: date, issue, what was added, changed or removed (rule text), why, and the eval
 it should move.
 
+## 2026-11-23.2
+
+- Date: 2026-11-23
+- Issue: ZALS-17 (ADR 0015, amends ADR 0009)
+- Changed, rule 9: "use query_waste to find the entry if needed, then update_entry" → "find the
+  entry with list_entries (narrow it by day, item or cause), then update_entry with its id. If
+  several entries could match, ask the user which one."
+- Added tool: `list_entries` (kitchen-mcp, on the allowlist): single waste entries with ids,
+  newest first, at most 20, with `truncated`.
+- Why: query_waste returns totals without entry ids, so the model had no way to find the id
+  update_entry needs.
+- Eval to move: tool-call correctness (the correction case now expects `list_entries` first).
+
 ## 2026-11-23.1
 
 - Date: 2026-11-23

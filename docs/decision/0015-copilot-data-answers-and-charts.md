@@ -31,6 +31,10 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 - Delivery: the text reply goes first, then the chart as a photo. The Anvia Telegram adapter sends attachments without a caption, so the title is drawn on the chart instead. A failed photo send is logged; the text is already delivered.
 - Any role may ask data questions and get charts, cost included (ADR 0012).
 
+**Corrections find the entry with `list_entries`**
+
+- `query_waste` returns totals without entry ids, so the model could not name the entry for `update_entry`. kitchen-mcp gets a read tool, `list_entries(outlet, from, to, item_id?, cause?)`. It returns single entries newest first (id, item, time, outlet-local day, kg, portions, cause, source), at most 20, with `truncated` when more matched. It is on the Copilot allowlist. Rule 9 now says to find the entry with `list_entries`, then call `update_entry` with its id, and to ask the user when several entries could match. `query_waste` stays the tool for totals (ADR 0009).
+
 **Instruction versions and their changelog**
 
 - `COPILOT_INSTRUCTIONS_VERSION` covers the instructions and every tool description the model sees. Every change bumps it and adds an entry, newest first, to `packages/agents/INSTRUCTIONS-CHANGELOG.md`. Each entry gives the date, issue, rule text, why, and the eval it should move. A test fails when the newest entry does not match the constant. `AGENTS.md` states the rule.
@@ -49,4 +53,4 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 - Chart numbers always match the database, and the model cannot draw what it did not query. Asking for a kind of chart that does not exist means adding a kind in code.
 - `vega`, `vega-lite` and `@resvg/resvg-js` (a prebuilt native binary) are new copilot dependencies, and the fonts add about 1.2 MB to the repo.
 - Copilot turns without a saved waste guess still write no `agent_runs` row, so for those the version is only in Lens. The eval harness should record the version with each result.
-- Known gap: rule 9 tells the model to find an entry with `query_waste`, but `query_waste` returns totals, not entry ids. The correction case in the dataset expects `query_waste` first. Fixing the lookup (an entry list tool, or ids in results) needs its own issue.
+- `list_entries` is capped, so a correction about a busy day may need a narrower filter (item or cause) before the right entry shows up.

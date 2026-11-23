@@ -296,10 +296,8 @@
       "role": "staff",
       "today": "2026-04-01",
       "expected": {
-        "tool": "query_waste",
-        "args": {
-          "filters": { "from": "2026-04-01", "to": "2026-04-01", "item_id": "{item:Rendang Sapi}" }
-        }
+        "tool": "list_entries",
+        "args": { "from": "2026-04-01", "to": "2026-04-01", "item_id": "{item:Rendang Sapi}" }
       }
     },
     {

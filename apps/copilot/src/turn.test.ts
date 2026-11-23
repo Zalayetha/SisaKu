@@ -293,6 +293,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       "get_menu",
       "get_prep_log",
       "get_sales",
+      "list_entries",
       "propose_waste_entry",
       "query_waste",
       "send_chart",
@@ -1079,6 +1080,37 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         text: UNSUPPORTED_ATTACHMENT,
       });
       expect(model.requests).toHaveLength(0);
+    });
+
+    it("finds a saved entry with list_entries, then corrects it with update_entry", async () => {
+      const model = new ScriptedModel([
+        {
+          toolCall: {
+            name: "list_entries",
+            input: { from: "2026-03-02", to: "2026-03-02", item_id: ids.rendang },
+          },
+        },
+        {
+          toolCall: {
+            name: "update_entry",
+            input: { id: ids.wasteRendangDay2, patch: { cause: "spoilage" } },
+          },
+        },
+        { text: "Sudah diperbaiki: penyebabnya basi." },
+      ]);
+      await handler(
+        model,
+        new RecordingObserver(),
+      )(message("rendang tanggal 2 itu basi, bukan sisa piring"));
+      // The listing gave the model the entry id it then corrected, for the sender's outlet only.
+      const listing = JSON.stringify(model.requests[1]!.chatHistory.at(-1));
+      expect(listing).toContain(ids.wasteRendangDay2);
+      expect(listing).not.toContain(ids.wasteRendangDay1);
+      const [entry] = await db
+        .select()
+        .from(wasteEntries)
+        .where(eq(wasteEntries.id, ids.wasteRendangDay2));
+      expect(entry!.cause).toBe("spoilage");
     });
 
     it("scores a later correction on the trace of the turn that logged the entry", async () => {
