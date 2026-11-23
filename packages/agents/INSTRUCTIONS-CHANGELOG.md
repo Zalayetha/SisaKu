@@ -11,6 +11,26 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-23.1
+
+- Date: 2026-11-23
+- Issue: ZALS-17 (ADR 0015)
+- Changed, rule 8: "call get_menu, then propose_waste_entry" → "call propose_waste_entry"; item
+  ids come "from the menu below" instead of "from get_menu".
+- Added, turn context: `Menu (item id: name): <id>: <name>; …`, the outlet's menu, names and
+  ids only.
+- Added, rule 10: "Why" questions about waste: call query_waste grouped by day for that item over
+  the period asked plus the 14 days before it, then get_sales for the same item and days. Compare
+  them (sales drop, cause change, or unexplained). Name a cause only as "likely", and only when
+  the data shows it. At most 5 tool calls for one question.
+- Changed tool description, `propose_waste_entry`: "Call get_menu first for item ids." → "Item
+  ids come from the menu in your instructions."
+- Why: with the menu in context the first tool call of a data question is the data tool itself
+  (`query_waste`, `get_sales`) instead of `get_menu`, which makes the first call meaningful for
+  the eval and saves a round trip. "Why" answers follow the nightly pipeline's Analyze step
+  instead of guessing.
+- Eval to move: tool-call correctness (first tool and arguments).
+
 ## 2026-11-22.1
 
 - Date: 2026-11-22

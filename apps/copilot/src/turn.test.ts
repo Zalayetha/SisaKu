@@ -345,6 +345,15 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     expect(model.requests[0]!.instructions).toContain("role: manager");
   });
 
+  it("gives the outlet's menu, names and ids, so the model needs no get_menu call", async () => {
+    const model = new ScriptedModel([{ text: "ok" }]);
+    await handler(model, new RecordingObserver())(message("halo"));
+    const instructions = model.requests[0]!.instructions!;
+    expect(instructions).toContain(`${ids.nasi}: Nasi Putih`);
+    expect(instructions).toContain(`${ids.rendang}: Rendang Sapi`);
+    expect(instructions).not.toContain("Soto Ayam"); // outlet B's menu
+  });
+
   it("apologises when the model fails, and records the error on the trace", async () => {
     const observer = new RecordingObserver();
     const model = new ScriptedModel([{ error: new Error("upstream timeout: secret detail") }]);

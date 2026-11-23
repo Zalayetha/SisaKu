@@ -9,6 +9,14 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 
 ## Decision
 
+**The menu is in the turn context**
+
+- Each turn reads the outlet's menu once and puts its names and ids in the instructions' turn context. Rule 8 now says "call propose_waste_entry" instead of "call get_menu, then propose_waste_entry", and `propose_waste_entry` uses the same menu. `get_menu` stays available for cost, weight and food category.
+
+**"Why" questions follow a fixed recipe**
+
+- Rule 10: call `query_waste` grouped by day for the item over the period asked plus the 14 days before it, then `get_sales` for the same item and days, and compare. A cause is named only as "likely", and only when the data shows it (a sales drop or a change of waste cause). At most 5 tool calls for one question. This mirrors the nightly pipeline's Analyze step.
+
 **Instruction versions and their changelog**
 
 - `COPILOT_INSTRUCTIONS_VERSION` covers the instructions and every tool description the model sees. Every change bumps it and adds an entry, newest first, to `packages/agents/INSTRUCTIONS-CHANGELOG.md`. Each entry gives the date, issue, a fingerprint of the instructions text, rule text, why, and the eval it should move. A test fails when the newest entry's version does not match the constant, or when its fingerprint (SHA-256 of `COPILOT_INSTRUCTIONS`, first 16 hex characters) does not match the current text, so an instruction edit without a new version cannot pass. Tool descriptions are not fingerprinted; their bumps stay by hand. `AGENTS.md` states the rule.
@@ -16,4 +24,5 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 
 ## Consequences
 
+- With the menu in context, a data question's first call is the data tool itself, and one round trip is saved. The cost is one `get_menu` call and a few hundred tokens of menu in every turn.
 - Copilot turns without a saved waste guess still write no `agent_runs` row, so for those the version is only in Lens. The eval harness should record the version with each result.

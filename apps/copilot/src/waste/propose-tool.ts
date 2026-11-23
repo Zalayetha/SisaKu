@@ -23,18 +23,19 @@ export type ProposeContext = {
   messageTime: Date;
   photo?: { data: Buffer; mediaType: string } | undefined;
   store: GuessStore;
-  loadMenu: () => Promise<readonly MenuItem[]>;
+  /** The outlet's menu, read once per turn. */
+  menu: readonly MenuItem[];
   /** Filled in by the tool: the guess to show after this turn, and the older one it replaces. */
   turn: { guess?: WasteGuess; replaced?: WasteGuess };
 };
 
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
-const input = z.object({
+export const proposeInput = z.object({
   lines: z
     .array(
       z.object({
-        item_id: z.string().describe("Menu item id from get_menu"),
+        item_id: z.string().describe("Menu item id from the menu in your instructions"),
         portion_count: z.number().int().positive().max(10000).optional(),
         weight_kg: z
           .number()
@@ -81,17 +82,15 @@ export function createProposeWasteTool(ctx: ProposeContext) {
   return createTool({
     name: PROPOSE_TOOL_NAME,
     description:
-      "Show the user a waste guess (menu items with portions, cause, time) as a card with Simpan / Ubah / Batal buttons. Nothing is saved until the user taps Simpan. Call get_menu first for item ids.",
-    inputSchema: input,
+      "Show the user a waste guess (menu items with portions, cause, time) as a card with Simpan / Ubah / Batal buttons. Nothing is saved until the user taps Simpan. Item ids come from the menu in your instructions.",
+    inputSchema: proposeInput,
     async handler(args): Promise<Result> {
-      const menu = await ctx.loadMenu();
-      const byId = new Map(menu.map((m) => [m.id, m]));
+      const byId = new Map(ctx.menu.map((m) => [m.id, m]));
 
       const lines: GuessLine[] = [];
       for (const line of args.lines ?? []) {
         const item = byId.get(line.item_id);
-        if (!item)
-          return fail(`item_id ${line.item_id} is not on this outlet's menu; use get_menu`);
+        if (!item) return fail(`item_id ${line.item_id} is not on this outlet's menu`);
         if ((line.portion_count === undefined) === (line.weight_kg === undefined)) {
           return fail("each line needs exactly one of portion_count or weight_kg");
         }
@@ -113,7 +112,7 @@ export function createProposeWasteTool(ctx: ProposeContext) {
       const candidates: MenuItem[] = [];
       for (const id of args.candidate_item_ids ?? []) {
         const item = byId.get(id);
-        if (!item) return fail(`candidate ${id} is not on this outlet's menu; use get_menu`);
+        if (!item) return fail(`candidate ${id} is not on this outlet's menu`);
         candidates.push(item);
       }
 
