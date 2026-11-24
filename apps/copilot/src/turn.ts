@@ -154,8 +154,15 @@ export function createTurnHandler(deps: TurnDeps) {
         wasteDeps,
       );
       const edits = outcome.edit ? [{ messageId: event.messageId, ...outcome.edit }] : [];
-      if (outcome.reply) return { type: "reply", text: outcome.reply, edits };
-      return edits.length > 0 ? { type: "edit", edits } : { type: "skip" };
+      const { history } = outcome;
+      const delivered = history
+        ? {
+            onDelivered: () =>
+              deps.history.append(event.conversation.id, history.user, history.assistant),
+          }
+        : {};
+      if (outcome.reply) return { type: "reply", text: outcome.reply, edits, ...delivered };
+      return edits.length > 0 ? { type: "edit", edits, ...delivered } : { type: "skip" };
     } catch (error) {
       log("Waste card action failed", error);
       return { type: "reply", text: APOLOGY };

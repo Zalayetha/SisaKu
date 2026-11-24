@@ -1077,6 +1077,96 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(entry).toMatchObject({ source: "text", portionCount: 3, cause: "over_prep" });
     });
 
+    describe("taps in the chat history (#54)", () => {
+      const roles = (model: ScriptedModel, request: number) =>
+        model.requests[request]!.chatHistory.map((m) => [m.role, m.content]);
+
+      it("records a saved guess with its entry ids, so a correction can use them", async () => {
+        const observer = new RecordingObserver();
+        const model = new ScriptedModel([
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "over_prep" }),
+          { text: "ok" },
+          { text: "Siap." },
+        ]);
+        const handle = handler(model, observer);
+        const card = asReply(await handle(message("nasi 3 porsi kebuang, kebanyakan masak")));
+        const saved = editOf(await handle(tap(button(card, "Simpan"))));
+        await handle(message("eh salah, harusnya 2 porsi"));
+
+        const [run] = await db
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+        const [entry] = await entriesOfRun(run!.id);
+        expect(roles(model, 2).slice(2)).toEqual([
+          ["user", "[Simpan]"],
+          ["assistant", `${saved.text}\nentry_id: ${entry!.id}`],
+          ["user", "eh salah, harusnya 2 porsi"],
+        ]);
+      });
+
+      it("records Batal and Ubah with the text the user saw", async () => {
+        const model = new ScriptedModel([
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 1 }], cause: "spoilage" }),
+          { text: "ok" },
+          propose({ lines: [{ item_id: ids.rendang, portion_count: 2 }], cause: "over_prep" }),
+          { text: "ok" },
+          { text: "Oke." },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const cancelled = asReply(await handle(message("nasi 1 porsi basi")));
+        await handle(tap(button(cancelled, "Batal")));
+        const edited = asReply(await handle(message("rendang 2 porsi kebanyakan masak")));
+        await handle(tap(button(edited, "Ubah")));
+        await handle(message("3 porsi"));
+
+        const taps = roles(model, 4).filter(([role, content]) =>
+          role === "user" ? String(content).startsWith("[") : false,
+        );
+        expect(taps).toEqual([
+          ["user", "[Batal]"],
+          ["user", "[Ubah]"],
+        ]);
+        const history = roles(model, 4);
+        expect(history[history.findIndex(([, c]) => c === "[Batal]") + 1]).toEqual([
+          "assistant",
+          "Dibatalkan.",
+        ]);
+        expect(history[history.findIndex(([, c]) => c === "[Ubah]") + 1]).toEqual([
+          "assistant",
+          ASK_CORRECTION_TEXT,
+        ]);
+      });
+
+      it("records no cause or candidate taps, and nothing for a tap on someone else's guess", async () => {
+        const model = new ScriptedModel([
+          { toolCall: { name: "get_menu", input: {} } },
+          propose({ candidate_item_ids: [ids.nasi, ids.rendang], confidence: 0.4 }),
+          { text: "Kurang yakin." },
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+          { text: "Oke." },
+          { text: "Halo." },
+          { text: "Halo juga." },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const unsure = asReply(await handle(photoMessage(), io));
+        await handle(tap(button(unsure, "Nasi Putih")));
+        const cause = asReply(await handle(message("2 porsi")));
+        await handle(tap(button(cause, "Basi")));
+        await handle(tap(button(cause, "Basi"), TELEGRAM_A2));
+        await handle(message("halo"));
+        await handle(message("halo", TELEGRAM_A2));
+
+        // A tap would show as a bracketed user line; "[foto]" marks the photo message itself.
+        const tapLines = roles(model, 5).filter(
+          ([role, c]) => role === "user" && /^\[(?!foto\])/.test(String(c)),
+        );
+        expect(tapLines).toEqual([]);
+        // The other user's chat holds nothing from the refused tap.
+        expect(roles(model, 6)).toEqual([["user", "halo"]]);
+      });
+    });
+
     it("discards a guess whose card could not be delivered, so it cannot be saved (#53)", async () => {
       const model = new ScriptedModel([
         propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
