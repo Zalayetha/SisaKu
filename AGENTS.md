@@ -94,6 +94,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0013: Self-host Anvia Lens as a separate Compose project](decision/0013-self-host-anvia-lens.md)
 - [0014: Waste logging confirmation gate](decision/0014-waste-logging-confirmation-gate.md)
 - [0015: Copilot data answers and charts](decision/0015-copilot-data-answers-and-charts.md)
+- [0016: Copilot evals](decision/0016-copilot-evals.md)
 
 ### Product
 

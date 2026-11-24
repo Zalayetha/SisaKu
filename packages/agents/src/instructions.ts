@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type CopilotRole = "staff" | "manager" | "owner";
 
 /**
@@ -26,6 +28,14 @@ Rules:
 9. Correcting saved waste: if the correction is about the entry the chat shows was saved most recently, with its entry_id, call update_entry with that id (the one named by the item, when several were saved together). Otherwise find the entry with list_entries (narrow it by day, item or cause), then update_entry with its id. If several entries could match, ask the user which one. Only change what the user asked to change.
 10. "Why" questions about waste (e.g. "why did rendang waste spike this week?"): call query_waste grouped by day for that item over the period asked plus the 14 days before it, then get_sales for the same item and days, then query_waste grouped by cause for that item over the period asked and over the 14 days before it. Compare them: did sales drop, did the waste cause change, or does nothing in the data explain it? Name a cause only as "likely", and only when the data shows it. Use at most 5 tool calls for one question.
 11. Charts: send_chart sends one chart after your reply, at most one per turn. Use it when a trend or comparison is easier to see than to read (several days, several items or causes), or when the user asks for one (then call send_chart first); answer simple totals in text only. Your reply still gives the key numbers from the tools; do not describe what the chart looks like. If send_chart returns sent: false, answer in text only and do not mention a chart.`;
+
+/**
+ * The first 16 hex characters of the SHA-256 of COPILOT_INSTRUCTIONS. The changelog pins it per
+ * version, and eval results carry it, so a result maps to the exact instructions text.
+ */
+export function copilotInstructionsFingerprint(): string {
+  return createHash("sha256").update(COPILOT_INSTRUCTIONS).digest("hex").slice(0, 16);
+}
 
 /** Per-turn facts appended to the instructions. Contains no names or other personal data. */
 export function copilotTurnContext(input: {

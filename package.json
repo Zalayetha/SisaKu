@@ -18,6 +18,7 @@
     "prepare": "husky",
     "test:e2e": "playwright test",
     "copilot": "pnpm --filter @sisaku/copilot start",
+    "eval": "pnpm --filter @sisaku/copilot eval",
     "db:migrate": "pnpm --filter @sisaku/db db:migrate",
     "db:rollback": "pnpm --filter @sisaku/db db:rollback",
     "db:reset": "pnpm --filter @sisaku/db db:reset",

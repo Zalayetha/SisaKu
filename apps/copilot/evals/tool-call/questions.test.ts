@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { COPILOT_TOOL_ALLOWLIST } from "@sisaku/agents";
 import { computeCo2eInput } from "@sisaku/impact-mcp";
 import {
@@ -14,24 +13,9 @@ import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 import { CHART_TOOL_NAME, chartInput } from "../../src/charts/chart-tool";
 import { PROPOSE_TOOL_NAME, proposeInput } from "../../src/waste/propose-tool";
+import { isObject, loadToolCallDataset, resolveItems } from "../cases";
 
-type Case = {
-  id: string;
-  area: string;
-  message: string;
-  language: "id" | "en";
-  role: "staff" | "manager" | "owner";
-  today: string;
-  openWasteGuess?: string;
-  /** Earlier chat, oldest first, sent before `message` as the Copilot's chat history would be. */
-  history?: { role: "user" | "assistant"; content: string }[];
-  expected: { tool: string | null; args?: Record<string, unknown> };
-};
-type Dataset = { outlet: string; cases: Case[] };
-
-const dataset = JSON.parse(
-  readFileSync(new URL("./questions.json", import.meta.url), "utf8"),
-) as Dataset;
+const dataset = loadToolCallDataset();
 
 const AREAS = {
   waste_total: 5,
@@ -71,31 +55,12 @@ const TOOLS: Record<string, { schema: ZodType; filler: Record<string, unknown> }
   [CHART_TOOL_NAME]: { schema: chartInput, filler: { kind: "waste_trend", from: day, to: day } },
 };
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-
 function merge(base: Record<string, unknown>, over: Record<string, unknown>) {
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(over)) {
     out[k] = isObject(v) && isObject(base[k]) ? merge(base[k], v) : v;
   }
   return out;
-}
-
-/** Replaces "{item:<menu name>}" with the item's id in the eval outlet's mock menu. */
-function resolveItems(value: unknown, menu: Map<string, string>): unknown {
-  if (typeof value === "string") {
-    const match = /^\{item:(.+)\}$/.exec(value);
-    if (!match) return value;
-    const id = menu.get(match[1]!);
-    if (!id) throw new Error(`${match[1]} is not on the eval outlet's menu`);
-    return id;
-  }
-  if (Array.isArray(value)) return value.map((v) => resolveItems(v, menu));
-  if (isObject(value)) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveItems(v, menu)]));
-  }
-  return value;
 }
 
 describe("tool-call eval dataset", () => {

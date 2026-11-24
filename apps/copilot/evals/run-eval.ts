@@ -1,0 +1,110 @@
+import type { CompletionModel } from "@anvia/core";
+import { runEvalSuite, type EvalReporter } from "@anvia/core/evals";
+import type { AgentObserver } from "@anvia/core/observability";
+import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@sisaku/agents";
+import type { ToolCallCase } from "./cases";
+import type { EvalEnvironment } from "./environment";
+import { toolCallMetric } from "./metrics";
+import { summarizeSuite, type SuiteSummary } from "./report";
+import { createCopilotTarget, type TurnOutput } from "./target";
+
+export { prepareEvalEnvironment, type EvalEnvironment } from "./environment";
+
+export type DatasetName = "tool-call";
+
+/** The pass rate each dataset must reach (technical design). */
+export const BARS: Record<DatasetName, number> = { "tool-call": 0.9 };
+
+export const DEFAULT_TIMEOUT_MS = 90_000;
+export const DEFAULT_CONCURRENCY = 4;
+
+export type SuiteReport = SuiteSummary & { name: DatasetName; bar: number };
+
+/** What a run measured, against which instructions and model; written as the JSON result. */
+export type EvalResultJson = {
+  run: {
+    date: string;
+    commit?: string;
+    model: string;
+    instructions_version: string;
+    instructions_fingerprint: string;
+  };
+  suites: SuiteReport[];
+};
+
+export type EvalReport = { suites: SuiteReport[]; exitCode: 0 | 1; json: EvalResultJson };
+
+export type RunOptions = {
+  env: EvalEnvironment;
+  model: CompletionModel;
+  datasets: { name: DatasetName; cases: readonly ToolCallCase[] }[];
+  /** Per case; a case that runs longer fails with reason "timeout". */
+  timeoutMs?: number;
+  /** Cases run at the same time. */
+  concurrency?: number;
+  /** Only these case ids; a dataset with none of them is skipped. */
+  caseIds?: readonly string[];
+  /** Runs every case this many times, as `<id>#1`, `<id>#2`, … */
+  repeat?: number;
+  /** The commit under test, recorded in the result. */
+  commit?: string;
+  /** Lens, when configured: traces every case and receives every score with its trace. */
+  lens?: { observer: AgentObserver; reporters: readonly EvalReporter<ToolCallCase, TurnOutput>[] };
+};
+
+/** The selected cases of a dataset, each repeated; ids get `#n` when repeated. */
+function selectCases(cases: readonly ToolCallCase[], options: RunOptions) {
+  const repeat = options.repeat ?? 1;
+  const chosen = options.caseIds ? cases.filter((c) => options.caseIds!.includes(c.id)) : cases;
+  return chosen.flatMap((c) =>
+    Array.from({ length: repeat }, (_, i) => ({
+      id: repeat > 1 ? `${c.id}#${i + 1}` : c.id,
+      input: c,
+    })),
+  );
+}
+
+/** Runs the selected cases of each dataset through the Copilot and scores them. */
+export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
+  const date = new Date().toISOString();
+  const selected = options.datasets
+    .map((dataset) => ({ name: dataset.name, cases: selectCases(dataset.cases, options) }))
+    .filter((dataset) => dataset.cases.length > 0);
+  if (selected.length === 0) throw new Error("No eval cases selected");
+
+  const suites: SuiteReport[] = [];
+  for (const dataset of selected) {
+    const result = await runEvalSuite({
+      name: dataset.name,
+      cases: dataset.cases,
+      target: createCopilotTarget({
+        env: options.env,
+        model: options.model,
+        dataset: dataset.name,
+        observer: options.lens?.observer,
+      }),
+      metrics: [toolCallMetric(options.env.menu)],
+      concurrency: options.concurrency ?? DEFAULT_CONCURRENCY,
+      caseTimeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      trace: ({ output }) => output?.trace,
+      reporters: options.lens?.reporters ?? [],
+      reporterErrorPolicy: "collect",
+    });
+    suites.push({ name: dataset.name, bar: BARS[dataset.name], ...summarizeSuite(result) });
+  }
+  const failed = suites.some((s) => s.passed / s.total < s.bar);
+  return {
+    suites,
+    exitCode: failed ? 1 : 0,
+    json: {
+      run: {
+        date,
+        ...(options.commit ? { commit: options.commit } : {}),
+        model: options.model.modelId,
+        instructions_version: COPILOT_INSTRUCTIONS_VERSION,
+        instructions_fingerprint: copilotInstructionsFingerprint(),
+      },
+      suites,
+    },
+  };
+}

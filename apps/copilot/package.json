@@ -6,6 +6,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "eval": "tsx --env-file-if-exists=../../.env evals/run.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
