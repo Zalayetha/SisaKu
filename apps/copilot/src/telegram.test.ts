@@ -7,7 +7,7 @@ import type {
   SentChannelMessage,
 } from "@anvia/channel";
 import { describe, expect, it } from "vitest";
-import { createTelegramService } from "./telegram";
+import { createTelegramService, DELIVERY_FAILED_TEXT } from "./telegram";
 import type { TurnResult } from "./turn";
 
 /** Stands in for Telegram: records what the service sends and edits, and can fail on demand. */
@@ -152,6 +152,74 @@ describe("Telegram service", () => {
       [message("pertama"), message("kedua")],
     );
     expect(channel.texts()).toEqual(["pertama", "kedua"]);
+  });
+
+  describe("when delivery fails (#53)", () => {
+    const tap: ChannelEvent = {
+      type: "action",
+      id: "a-1",
+      platform: "telegram",
+      conversation: { id: "chat-1", kind: "direct" },
+      sender: { id: "1001", displayName: "Budi", bot: false },
+      messageId: "card-1",
+      actionId: "w:x:c0",
+      raw: {},
+    };
+
+    it("tells the user and discards the card's guess when the reply cannot be sent", async () => {
+      const channel = new FakeChannel();
+      channel.failSend = (m) =>
+        m.actions
+          ? new RangeError("Channel message must not contain more than 5 actions")
+          : undefined;
+      let failed = 0;
+      const { logs } = await run(
+        () => ({
+          type: "reply",
+          text: "Penyebabnya apa?",
+          actions: [{ id: "w:x:c0", label: "Basi" }],
+          onSent: () => expect.fail("not sent"),
+          onFailed: () => failed++,
+        }),
+        [message("nasi 3 porsi kebuang")],
+        channel,
+      );
+      expect(failed).toBe(1);
+      expect(channel.sent).toEqual([
+        { conversationId: "chat-1", message: { text: DELIVERY_FAILED_TEXT } },
+      ]);
+      expect(logs).toEqual(["Failed to deliver a Copilot reply"]);
+    });
+
+    it("tells the user when a tap's card cannot be updated", async () => {
+      const channel = new FakeChannel();
+      channel.failEdit = () => new Error("Bad Request: message can't be edited");
+      await run(
+        () => ({ type: "edit", edits: [{ messageId: "card-1", text: "Limbah yang dicatat" }] }),
+        [tap],
+        channel,
+      );
+      expect(channel.texts()).toEqual([DELIVERY_FAILED_TEXT]);
+    });
+
+    it("only logs when the fallback fails too, and keeps handling later messages", async () => {
+      const channel = new FakeChannel();
+      let down = true;
+      channel.failSend = () => (down ? new Error("network down") : undefined);
+      const { logs } = await run(
+        (event) => {
+          down = event.type === "message" && event.text === "a";
+          return { type: "reply", text: "balasan" };
+        },
+        [message("a"), message("b")],
+        channel,
+      );
+      expect(channel.texts()).toEqual(["balasan"]);
+      expect(logs).toEqual([
+        "Failed to deliver a Copilot reply",
+        "Failed to send the delivery failure notice",
+      ]);
+    });
   });
 
   it("sends nothing for a skipped turn", async () => {

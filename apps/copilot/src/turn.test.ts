@@ -1041,6 +1041,22 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(entry).toMatchObject({ source: "text", portionCount: 3, cause: "over_prep" });
     });
 
+    it("discards a guess whose card could not be delivered, so it cannot be saved (#53)", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
+        { text: "ok" },
+      ]);
+      const observer = new RecordingObserver();
+      const handle = handler(model, observer);
+      const card = asReply(await handle(message("nasi 2 porsi basi")));
+      card.onFailed!();
+
+      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(EXPIRED_TEXT);
+      expect(
+        await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[0]!.traceId)),
+      ).toEqual([]);
+    });
+
     it("sends every card within Anvia's limits at its largest: long names, 3 candidates, 5 lines", async () => {
       // Menu names are free text; these are longer than a Telegram button label may be (80).
       const long = [1, 2, 3].map((n) => ({

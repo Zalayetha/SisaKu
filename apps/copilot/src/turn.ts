@@ -40,6 +40,8 @@ export type TurnResult =
       edits?: readonly CardEdit[];
       /** Called with the id of the sent message, so a card can be edited later. */
       onSent?: (messageId: string) => void;
+      /** Called when the message could not be delivered: a card nobody saw must not be saveable. */
+      onFailed?: () => void;
     }
   | { type: "edit"; edits: readonly CardEdit[] };
 
@@ -267,6 +269,7 @@ export function createTurnHandler(deps: TurnDeps) {
           onSent: (messageId) => {
             guess.cardMessageId = messageId;
           },
+          onFailed: () => guesses.delete(guess.id),
         };
       }
       const reply = result.text.trim();

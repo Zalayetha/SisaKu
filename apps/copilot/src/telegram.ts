@@ -12,6 +12,9 @@ import type { TurnIO, TurnResult } from "./turn";
  * earlier waste cards (ADR 0014). The channel is passed in, so tests can use a fake one.
  * Turns are serialised per conversation so chat history stays in order.
  */
+/** Sent when a reply or a tapped card's update could not be delivered, instead of silence (#53). */
+export const DELIVERY_FAILED_TEXT = "Maaf, balasan gagal terkirim. Coba kirim lagi.";
+
 export function createTelegramService(options: {
   channel: Channel;
   handleTurn: (event: ChannelEvent, io: TurnIO) => Promise<TurnResult>;
@@ -41,14 +44,29 @@ export function createTelegramService(options: {
     }
     const result = await options.handleTurn(event, io);
     if (result.type === "skip") return;
-    // Card edits are best-effort: an old card that cannot be edited must not block the reply.
+    try {
+      await deliver(result, address);
+    } catch (error) {
+      log("Failed to deliver a Copilot reply", error);
+      if (result.type === "reply") result.onFailed?.();
+      await sendChannelMessage({
+        channel,
+        address,
+        message: { text: DELIVERY_FAILED_TEXT },
+      }).catch((e: unknown) => log("Failed to send the delivery failure notice", e));
+    }
+  }
+
+  async function deliver(result: Exclude<TurnResult, { type: "skip" }>, address: ChannelAddress) {
     for (const edit of result.edits ?? []) {
-      await channel
-        .edit?.(
-          { id: edit.messageId, address },
-          { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) },
-        )
-        .catch((error: unknown) => log("Failed to edit a waste card", error));
+      const editing = channel.edit?.(
+        { id: edit.messageId, address },
+        { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) },
+      );
+      // A tap's card update is the whole answer, so its failure counts as a failed delivery.
+      // Edits beside a reply touch older cards and are best-effort: they must not block the reply.
+      if (result.type === "edit") await editing;
+      else await editing?.catch((error: unknown) => log("Failed to edit a waste card", error));
     }
     if (result.type === "reply") {
       const sent = await sendChannelMessage({
