@@ -4,7 +4,7 @@ import type { AgentObserver, AgentRunObserver } from "@anvia/core/observability"
 import { COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
 import { ChatHistory } from "../src/history";
 import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "../src/testing/harness";
-import { createTurnHandler } from "../src/turn";
+import { APOLOGY, createTurnHandler } from "../src/turn";
 import { createUserLookup } from "../src/users";
 import type { ToolCallCase } from "./cases";
 import type { EvalEnvironment } from "./environment";
@@ -106,6 +106,7 @@ export function createCopilotTarget(deps: TargetDeps) {
       history.append(chatId, earlier[i]!.content, earlier[i + 1]!.content);
     }
     const now = noonIn(input.today, env.outlet.timezone);
+    let failure: string | undefined;
     const handleTurn = createTurnHandler({
       lookupUser: createUserLookup(env.db),
       db: env.db,
@@ -122,7 +123,11 @@ export function createCopilotTarget(deps: TargetDeps) {
       scorer: new RecordingScorer(),
       charts: new RecordingRenderer(),
       now: () => now,
-      log: (message, error) => output.errors.push(`${message}: ${String(error ?? "")}`),
+      log: (message, error) => {
+        const line = `${message}: ${String(error ?? "")}`;
+        output.errors.push(line);
+        if (message === "Copilot turn failed") failure = line;
+      },
     });
     const senderId = env.telegramIdByRole[input.role];
     const event: ChannelEvent = {
@@ -138,6 +143,11 @@ export function createCopilotTarget(deps: TargetDeps) {
     };
     const result = await handleTurn(event);
     output.reply = result.type === "reply" ? result.text : "";
+    // The handler answers a failed or empty turn with the apology. Scoring it would pass a
+    // `tool: null` case because the model was down, so the case becomes invalid instead.
+    if (failure || output.reply === APOLOGY) {
+      throw new Error(failure ?? "Copilot turn failed: no reply from the model");
+    }
     return output;
   };
 }

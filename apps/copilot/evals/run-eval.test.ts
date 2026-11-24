@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   Usage,
   type CompletionModel,
@@ -11,6 +13,7 @@ import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@s
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import type { ToolCallCase } from "./cases";
+import { createEvalLens } from "./lens";
 import { formatText } from "./report";
 import { prepareEvalEnvironment, runCopilotEval, type EvalEnvironment } from "./run-eval";
 
@@ -287,6 +290,26 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     expect(process.exitCode).toBe(before);
   });
 
+  it("never scores a failed turn: no tool: null case passes because the model was down", async () => {
+    const model = new ByMessageModel({ "pesan kosong": { text: "" } }); // any other message throws
+    const cases = [
+      toolCase({ id: "model-error", message: "pesan galat", expected: { tool: null } }),
+      toolCase({ id: "model-error-tool", message: "pesan galat", expected: { tool: "get_menu" } }),
+      toolCase({ id: "empty-reply", message: "pesan kosong", expected: { tool: null } }),
+    ];
+
+    const report = await runCopilotEval({ env, model, datasets: [{ name: "tool-call", cases }] });
+
+    const [error, errorTool, empty] = report.json.suites[0]!.cases;
+    expect(report.suites[0]).toMatchObject({ passed: 0, total: 3 });
+    expect(error).toMatchObject({ id: "model-error", outcome: "invalid" });
+    expect(error!.reason).toContain("no scripted answer");
+    expect(errorTool).toMatchObject({ id: "model-error-tool", outcome: "invalid" });
+    expect(errorTool!.reason).toContain("no scripted answer");
+    expect(empty).toMatchObject({ id: "empty-reply", outcome: "invalid" });
+    expect(empty!.reason).toContain("Copilot turn failed");
+  });
+
   it("runs only the selected cases, repeats them, and refuses an empty selection", async () => {
     const model = new ByMessageModel({
       "Berapa total limbah kemarin?": { tool: "get_menu", input: {} },
@@ -411,6 +434,56 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
         },
       ]);
       expect(report.json.suites[0]!.cases[0]!.trace_id).toBe("trace-1");
+    });
+
+    it("sends full content: the instructions, message, tool arguments and tool result", async () => {
+      const bodies: Record<string, string> = {};
+      const server = createServer((req, res) => {
+        let body = "";
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          bodies[req.url!] = (bodies[req.url!] ?? "") + body;
+          res.writeHead(200, { "content-type": "application/json" }).end("{}");
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      try {
+        const lens = createEvalLens({
+          ANVIA_LENS_BASE_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+          ANVIA_LENS_PUBLIC_KEY: "public",
+          ANVIA_LENS_SECRET_KEY: "secret",
+        })!;
+        await runCopilotEval({
+          env,
+          model: new ByMessageModel({ "pesan menu": { tool: "get_menu", input: {} } }),
+          datasets: [
+            {
+              name: "tool-call",
+              cases: [
+                toolCase({ id: "menu", message: "pesan menu", expected: { tool: "get_menu" } }),
+              ],
+            },
+          ],
+          lens,
+        });
+        await lens.client.flush();
+        await lens.client.close();
+      } finally {
+        server.close();
+      }
+
+      const traces = bodies["/api/public/otel/v1/traces"] ?? "";
+      expect(traces).toContain("sisaku-copilot-eval");
+      expect(traces).toContain("pesan menu"); // the user's message
+      expect(traces).toContain("Current date: 2026-04-01"); // the instructions
+      expect(traces).toContain("get_menu");
+      expect(traces).toContain(env.menu.get("Rendang Sapi")!); // the tool's result
+      expect(traces).toContain("Selesai."); // the reply
+      expect(bodies["/api/public/otel/v1/logs"] ?? "").toContain("tool_call"); // the score
+    });
+
+    it("is off unless all three settings are set", () => {
+      expect(createEvalLens({ ANVIA_LENS_BASE_URL: "http://localhost:8080" })).toBeUndefined();
     });
 
     it("still scores every case when Lens fails, and warns about it", async () => {

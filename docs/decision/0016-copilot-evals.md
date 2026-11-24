@@ -33,7 +33,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 **Results**
 
 - `runEvalCli` prints every case as Anvia formats it (values cut at 300 characters). Its exit code is not used: it fails on any failed case and exits 2 on an unscored one, while ours follows the bar.
-- After that, the terminal shows passed/total per dataset and area, and every failed case with the expected and actual call. A JSON result is written to `apps/copilot/evals/results/` (git-ignored), with every case's calls and reply, tagged with the instructions version, the instructions fingerprint (`copilotInstructionsFingerprint()`, the value the changelog pins), the model id, the date and the commit. A case that could not be scored (a timeout or a turn error) has outcome `invalid` in the JSON and counts as failed.
+- After that, the terminal shows passed/total per dataset and area, and every failed case with the expected and actual call. A JSON result is written to `apps/copilot/evals/results/` (git-ignored), with every case's calls and reply, tagged with the instructions version, the instructions fingerprint (`copilotInstructionsFingerprint()`, the value the changelog pins), the model id, the date and the commit. A case that could not be scored (a timeout or a turn error) has outcome `invalid` in the JSON and counts as failed. A turn that fails, or ends with no reply, is a turn error: the handler answers it with the apology, and the eval never scores that as a reply, so a model outage cannot pass a `tool: null` case.
 
 **Lens, when configured**
 

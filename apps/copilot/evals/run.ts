@@ -2,8 +2,9 @@ import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { createLens, createModel } from "@sisaku/agents";
+import { createModel } from "@sisaku/agents";
 import { loadToolCallDataset } from "./cases";
+import { createEvalLens } from "./lens";
 import { formatText } from "./report";
 import {
   prepareEvalEnvironment,
@@ -17,7 +18,6 @@ import {
 //   --case <id>           only these case ids (repeatable)
 //   --repeat <n>          run every case n times
 
-const LENS_ENV = ["ANVIA_LENS_BASE_URL", "ANVIA_LENS_PUBLIC_KEY", "ANVIA_LENS_SECRET_KEY"];
 const DATASETS: Record<DatasetName, () => ReturnType<typeof loadToolCallDataset>["cases"]> = {
   "tool-call": () => loadToolCallDataset().cases,
 };
@@ -52,17 +52,15 @@ const commit = (() => {
   }
 })();
 
-const model = createModel();
-// Lens is optional: eval traces go under their own service name with full content, because they
-// hold only mock data; production stays in safe capture mode (ADR 0012, ADR 0016).
-const lens = LENS_ENV.every((name) => process.env[name])
-  ? createLens("sisaku-copilot-eval")
-  : undefined;
-console.error(lens ? "Tracing to Lens as sisaku-copilot-eval." : "Lens not configured: no traces.");
-
+let lens: ReturnType<typeof createEvalLens>;
 let env: EvalEnvironment | undefined;
 let exitCode = 1;
 try {
+  const model = createModel();
+  lens = createEvalLens();
+  console.error(
+    lens ? "Tracing to Lens as sisaku-copilot-eval." : "Lens not configured: no traces.",
+  );
   console.error("Preparing the eval database…");
   env = await prepareEvalEnvironment(dbUrl);
   const report = await runCopilotEval({
@@ -73,14 +71,7 @@ try {
     repeat,
     print: (text) => process.stdout.write(text),
     ...(commit ? { commit } : {}),
-    ...(lens
-      ? {
-          lens: {
-            observer: lens.observer({ captureMode: "full" }),
-            reporters: [lens.evalReporter()],
-          },
-        }
-      : {}),
+    ...(lens ? { lens } : {}),
   });
 
   console.log(`\n${formatText(report.suites)}`);
@@ -92,14 +83,14 @@ try {
   for (const warning of report.warnings) console.error(`Warning: ${warning}`);
   exitCode = report.exitCode;
 } catch (error) {
-  // A setup error (wrong database, failed migration or seed) is not a score: exit 2.
+  // A setup error (bad Lens settings, wrong database, failed migration or seed) is not a score.
   console.error(error instanceof Error ? error.message : error);
   exitCode = 2;
 } finally {
   if (lens) {
     try {
-      await lens.flush();
-      await lens.close();
+      await lens.client.flush();
+      await lens.client.close();
     } catch (error) {
       console.error("Lens could not be reached; scores above are unaffected.", error);
     }
