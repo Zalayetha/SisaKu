@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ChannelConversationKind, ChannelEvent } from "@anvia/channel";
+import {
+  validateChannelMessage,
+  type ChannelConversationKind,
+  type ChannelEvent,
+} from "@anvia/channel";
 import {
   Usage,
   type CompletionModel,
@@ -15,7 +19,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { agentRuns, menuItems, sales, users, wasteEntries } from "@sisaku/db";
 import { createImpactServer } from "@sisaku/impact-mcp";
 import { createKitchenServer } from "@sisaku/kitchen-mcp";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import { ChatHistory } from "./history";
@@ -243,8 +247,20 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     charts = new RecordingRenderer();
   });
 
+  /** Fails the test if Anvia would refuse to send a result, as it did with a 6-button card (#53). */
+  function assertSendable(result: TurnResult) {
+    if (result.type === "skip") return;
+    for (const edit of result.edits ?? []) validateChannelMessage(edit);
+    if (result.type === "reply") {
+      validateChannelMessage({
+        text: result.text,
+        ...(result.actions ? { actions: result.actions } : {}),
+      });
+    }
+  }
+
   function handler(model: CompletionModel, observer: AgentObserver, extra: Partial<TurnDeps> = {}) {
-    return createTurnHandler({
+    const handle = createTurnHandler({
       lookupUser: createUserLookup(db),
       db,
       servers: mcp.servers,
@@ -259,6 +275,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       log: () => undefined,
       ...extra,
     });
+    return async (...args: Parameters<typeof handle>) => {
+      const result = await handle(...args);
+      assertSendable(result);
+      return result;
+    };
   }
 
   it("answers an unregistered sender with their Telegram ID, without the model or a trace", async () => {
@@ -920,7 +941,6 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         "Sisa piring",
         "Salah masak",
         "Kedaluwarsa",
-        "Batal",
       ]);
       const ready = await handle(tap(button(revised, "Basi")));
       expect(editOf(ready).actions?.map((a) => a.label)).toEqual(["Simpan", "Ubah", "Batal"]);
@@ -988,6 +1008,131 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         confidence: null,
       });
       expect(scorer.scores[0]).toMatchObject({ value: 0, metadata: { fields: ["portion_count"] } });
+    });
+
+    it("asks for the cause with five buttons when a text names none, then saves it (#53)", async () => {
+      const observer = new RecordingObserver();
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }] }),
+        { text: "Penyebabnya apa?" },
+      ]);
+      const handle = handler(model, observer);
+      const card = asReply(await handle(message("nasi putih 3 porsi kebuang")));
+      expect(card.text).toContain("Penyebabnya apa?");
+      // Anvia sends at most 5 actions, so the cause card has no Batal.
+      expect(card.actions?.map((a) => a.label)).toEqual([
+        "Kelebihan masak",
+        "Basi",
+        "Sisa piring",
+        "Salah masak",
+        "Kedaluwarsa",
+      ]);
+
+      const ready = await handle(tap(button(card, "Kelebihan masak")));
+      expect(editOf(ready).actions?.map((a) => a.label)).toEqual(["Simpan", "Ubah", "Batal"]);
+      expect(editOf(await handle(tap(editOf(ready).actions![0]!.id))).text).toContain(
+        "Tersimpan ✓",
+      );
+      const [run] = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+      const [entry] = await entriesOfRun(run!.id);
+      expect(entry).toMatchObject({ source: "text", portionCount: 3, cause: "over_prep" });
+    });
+
+    it("discards a guess whose card could not be delivered, so it cannot be saved (#53)", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
+        { text: "ok" },
+      ]);
+      const observer = new RecordingObserver();
+      const handle = handler(model, observer);
+      const card = asReply(await handle(message("nasi 2 porsi basi")));
+      card.onFailed!();
+
+      expect(asReply(await handle(tap(button(card, "Simpan")))).text).toBe(EXPIRED_TEXT);
+      expect(
+        await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[0]!.traceId)),
+      ).toEqual([]);
+    });
+
+    it("restores the replaced guess when its correction's card could not be delivered", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
+        { text: "ok" },
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], corrects_open_guess: true }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const first = asReply(await handle(message("nasi 2 porsi basi")));
+      const correction = asReply(await handle(message("eh, 3 porsi")));
+      correction.onFailed!();
+
+      // The user only ever saw the first card, so it can still be saved.
+      const saved = await handle(tap(button(first, "Simpan")));
+      expect(editOf(saved).text).toContain("Nasi Putih: 2 porsi");
+    });
+
+    it("sends every card within Anvia's limits at its largest: long names, 3 candidates, 5 lines", async () => {
+      // Menu names are free text; these are longer than a Telegram button label may be (80).
+      const long = [1, 2, 3].map((n) => ({
+        id: `00000000-0000-4000-8000-00000000011${n}`,
+        outletId: ids.outletA,
+        // The third is 78 characters but 84 UTF-16 units, the length Anvia counts.
+        name:
+          n === 3
+            ? `Paket Rames Spesial Nomor 3 dengan Ayam Bakar, Sambal Matah dan Kerupuk ${"🍛".repeat(6)}`
+            : `Nasi Campur Spesial Komplit Nomor ${n} dengan Ayam Bakar, Sambal Matah, Telur Balado dan Kerupuk`,
+        category: "main",
+        costPerPortion: "20000",
+        portionWeightKg: "0.300",
+        foodCategory: "other",
+      }));
+      await db.insert(menuItems).values(long);
+      try {
+        const model = new ScriptedModel([
+          propose({ candidate_item_ids: long.map((i) => i.id), confidence: 0.3 }),
+          { text: "Kurang yakin." },
+          propose({
+            lines: [
+              { item_id: ids.nasi, portion_count: 1 },
+              { item_id: ids.rendang, portion_count: 1 },
+              ...long.map((i) => ({ item_id: i.id, portion_count: 2 })),
+            ],
+            cause: "plate_waste",
+            corrects_open_guess: true,
+          }),
+          { text: "ok" },
+          propose({
+            lines: [{ item_id: long[0]!.id, portion_count: 1 }],
+            corrects_open_guess: true,
+          }),
+          { text: "ok" },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const unsure = asReply(await handle(photoMessage(), io));
+        expect(unsure.actions).toHaveLength(4);
+        // A long name is cut short on its button, so the user can still tell candidates apart.
+        expect(unsure.actions![0]!.label).toMatch(/^Nasi Campur Spesial Komplit Nomor 1 .*…$/);
+
+        const ready = asReply(await handle(message("semuanya sisa piring")));
+        expect(ready.text).toContain(`5. ${long[2]!.name}: 2 porsi`);
+        expect(ready.actions?.map((a) => a.label)).toEqual(["Simpan", "Ubah", "Batal"]);
+
+        // A correction after Ubah that names no cause keeps the cause, so it never needs the cause card.
+        expect(asReply(await handle(tap(button(ready, "Ubah")))).text).toBe(ASK_CORRECTION_TEXT);
+        const corrected = asReply(await handle(message("cuma 1 porsi yang nomor 1")));
+        expect(corrected.text).toContain("Penyebab: Sisa piring");
+        expect(corrected.actions?.map((a) => a.label)).toEqual(["Simpan", "Ubah", "Batal"]);
+      } finally {
+        await db.delete(menuItems).where(
+          inArray(
+            menuItems.id,
+            long.map((i) => i.id),
+          ),
+        );
+      }
     });
 
     it("keeps an open photo guess when the user reports different waste by text", async () => {

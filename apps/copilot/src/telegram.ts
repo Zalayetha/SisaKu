@@ -1,23 +1,27 @@
-import { sendChannelMessage, type ChannelAddress, type ChannelEvent } from "@anvia/channel";
-import { telegram } from "@anvia/telegram";
+import {
+  sendChannelMessage,
+  type Channel,
+  type ChannelAddress,
+  type ChannelEvent,
+} from "@anvia/channel";
 import type { TurnIO, TurnResult } from "./turn";
+
+/** Sent when a reply or a tapped card's update could not be delivered, instead of silence (#53). */
+export const DELIVERY_FAILED_TEXT = "Maaf, balasan gagal terkirim. Coba kirim lagi.";
 
 /**
  * Thin adapter: Telegram in polling mode (ADR 0012), every event handed to the turn handler,
  * which may answer with a message (with buttons), a chart photo after it (ADR 0015), and edits of
- * earlier waste cards (ADR 0014).
+ * earlier waste cards (ADR 0014). The channel is passed in, so tests can use a fake one.
  * Turns are serialised per conversation so chat history stays in order.
  */
 export function createTelegramService(options: {
-  token: string;
+  channel: Channel;
   handleTurn: (event: ChannelEvent, io: TurnIO) => Promise<TurnResult>;
   log?: (message: string, error?: unknown) => void;
 }) {
   const log = options.log ?? ((message, error) => console.error(message, error ?? ""));
-  const channel = telegram({
-    token: options.token,
-    onError: (error, context) => log(`Telegram ${context.operation} error`, error),
-  });
+  const { channel } = options;
   const queues = new Map<string, Promise<void>>();
 
   async function handle(event: ChannelEvent) {
@@ -40,14 +44,32 @@ export function createTelegramService(options: {
     }
     const result = await options.handleTurn(event, io);
     if (result.type === "skip") return;
-    // Card edits are best-effort: an old card that cannot be edited must not block the reply.
+    try {
+      await deliver(result, address);
+    } catch (error) {
+      log("Failed to deliver a Copilot reply", error);
+      if (result.type === "reply") result.onFailed?.();
+      await sendChannelMessage({
+        channel,
+        address,
+        message: { text: DELIVERY_FAILED_TEXT },
+      }).catch((e: unknown) => log("Failed to send the delivery failure notice", e));
+    }
+  }
+
+  async function deliver(result: Exclude<TurnResult, { type: "skip" }>, address: ChannelAddress) {
     for (const edit of result.edits ?? []) {
-      await channel
-        .edit?.(
-          { id: edit.messageId, address },
-          { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) },
-        )
-        .catch((error: unknown) => log("Failed to edit a waste card", error));
+      const message = { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) };
+      try {
+        await channel.edit?.({ id: edit.messageId, address }, message);
+      } catch (error) {
+        log("Failed to edit a waste card", error);
+        // Edits beside a reply touch older cards and are best-effort: they must not block it.
+        // A tap's card update is the whole answer, and the tap has already changed the guess
+        // (a cause chosen, the entry saved), so send the updated card as a new message; its
+        // buttons carry the guess id and work from there. If that fails too, deliver fails.
+        if (result.type === "edit") await sendChannelMessage({ channel, address, message });
+      }
     }
     if (result.type === "reply") {
       const sent = await sendChannelMessage({
@@ -85,7 +107,7 @@ export function createTelegramService(options: {
       await channel.start((event) => {
         const key = event.conversation.id;
         const next = (queues.get(key) ?? Promise.resolve()).then(() => handle(event));
-        const settled = next.catch((error) => log("Failed to deliver a Copilot reply", error));
+        const settled = next.catch((error) => log("Copilot turn failed", error));
         queues.set(key, settled);
         void settled.then(() => {
           if (queues.get(key) === settled) queues.delete(key);

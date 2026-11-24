@@ -40,6 +40,8 @@ export type TurnResult =
       edits?: readonly CardEdit[];
       /** Called with the id of the sent message, so a card can be edited later. */
       onSent?: (messageId: string) => void;
+      /** Called when the message could not be delivered: a card nobody saw must not be saveable. */
+      onFailed?: () => void;
     }
   | { type: "edit"; edits: readonly CardEdit[] };
 
@@ -266,6 +268,11 @@ export function createTurnHandler(deps: TurnDeps) {
           edits: replacedId ? [{ messageId: replacedId, text: REPLACED_CARD_TEXT }] : [],
           onSent: (messageId) => {
             guess.cardMessageId = messageId;
+          },
+          // Like a failed turn: the guess this card would have replaced stays open.
+          onFailed: () => {
+            guesses.delete(guess.id);
+            if (turn.replaced) guesses.add(turn.replaced);
           },
         };
       }

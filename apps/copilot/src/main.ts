@@ -1,5 +1,6 @@
 import { connectMcpServers, createLens, createModel } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
+import { telegram } from "@anvia/telegram";
 import { sql } from "drizzle-orm";
 import { createChartRenderer } from "./charts/render";
 import { ChatHistory } from "./history";
@@ -21,7 +22,10 @@ await db.execute(sql`select 1`);
 const mcp = await connectMcpServers();
 
 const service = createTelegramService({
-  token,
+  channel: telegram({
+    token,
+    onError: (error, context) => console.error(`Telegram ${context.operation} error`, error),
+  }),
   handleTurn: createTurnHandler({
     lookupUser: createUserLookup(db),
     db,

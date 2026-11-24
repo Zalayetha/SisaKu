@@ -1,4 +1,4 @@
-import type { ChannelAction } from "@anvia/channel";
+import { MAX_CHANNEL_ACTION_LABEL_LENGTH, type ChannelAction } from "@anvia/channel";
 import { WASTE_CAUSES, type WasteCause } from "@sisaku/db";
 import { guessStage, type GuessLine, type WasteGuess } from "./guess";
 
@@ -24,6 +24,20 @@ export function actionId(guessId: string, code: string): string {
 export function parseActionId(id: string): { guessId: string; code: string } | undefined {
   const match = /^w:([0-9a-f-]{36}):([a-z]\d?)$/.exec(id);
   return match ? { guessId: match[1]!, code: match[2]! } : undefined;
+}
+
+/**
+ * Menu names are free text; Anvia refuses a button label longer than 80 UTF-16 units (`length`,
+ * so an emoji counts as two). Longer names are cut, never inside an emoji, and end in "…".
+ */
+function buttonLabel(name: string): string {
+  if (name.length <= MAX_CHANNEL_ACTION_LABEL_LENGTH) return name;
+  let label = "";
+  for (const char of name) {
+    if (label.length + char.length > MAX_CHANNEL_ACTION_LABEL_LENGTH - 1) break;
+    label += char;
+  }
+  return `${label.trimEnd()}…`;
 }
 
 const kg = (n: number) => `${n.toLocaleString("id-ID", { maximumFractionDigits: 3 })} kg`;
@@ -63,7 +77,7 @@ export function renderCard(guess: WasteGuess, today: string): Card {
         actions: [
           ...guess.candidates.map((item, i) => ({
             id: actionId(guess.id, `i${i}`),
-            label: item.name,
+            label: buttonLabel(item.name),
           })),
           cancel,
         ],
@@ -76,13 +90,12 @@ export function renderCard(guess: WasteGuess, today: string): Card {
     case "need_cause":
       return {
         text: [summary(guess, today), "", "Penyebabnya apa?"].join("\n"),
-        actions: [
-          ...WASTE_CAUSES.map((cause, i) => ({
-            id: actionId(guess.id, `c${i}`),
-            label: CAUSE_LABELS[cause],
-          })),
-          cancel,
-        ],
+        // One button per cause and no Batal: Anvia sends at most MAX_CHANNEL_ACTIONS (5) actions,
+        // and a sixth makes the whole card undeliverable (#53). Cancel from the next card instead.
+        actions: WASTE_CAUSES.map((cause, i) => ({
+          id: actionId(guess.id, `c${i}`),
+          label: CAUSE_LABELS[cause],
+        })),
       };
     case "ready":
       return {
