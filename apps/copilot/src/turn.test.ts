@@ -13,12 +13,9 @@ import {
   type ToolCallContext,
 } from "@anvia/core";
 import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability";
-import { McpClient, McpClientGroup } from "@anvia/mcp";
+import type { McpClientGroup } from "@anvia/mcp";
 import { COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
-import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { agentRuns, menuItems, sales, users, wasteEntries } from "@sisaku/db";
-import { createImpactServer } from "@sisaku/impact-mcp";
-import { createKitchenServer } from "@sisaku/kitchen-mcp";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
@@ -44,11 +41,15 @@ import {
   SAVE_FAILED_TEXT,
 } from "./waste/actions";
 import { actionId, parseActionId } from "./waste/card";
-import { createChartRenderer, type ChartRenderer, type ChartSpec } from "./charts/render";
+import { createChartRenderer } from "./charts/render";
+import {
+  connectInMemoryServers,
+  FakePhotoStore,
+  RecordingRenderer,
+  RecordingScorer,
+} from "./testing/harness";
 import { createUserLookup, type Db } from "./users";
-import type { FeedbackScorer } from "./waste/feedback";
 import { GuessStore } from "./waste/guess";
-import type { PhotoStore } from "./waste/photos";
 
 const TELEGRAM_A = "1001"; // manager of outlet A
 const TELEGRAM_STRANGER = "9999";
@@ -161,53 +162,6 @@ class RecordingObserver implements AgentObserver {
   }
 }
 
-/** Stands in for the photos volume. */
-class FakePhotoStore implements PhotoStore {
-  readonly saved: { path: string; data: Buffer }[] = [];
-  async save(path: string, data: Buffer) {
-    this.saved.push({ path, data });
-    return path;
-  }
-}
-
-/** Stands in for the chart renderer: keeps every spec, returns fake PNG bytes. */
-class RecordingRenderer implements ChartRenderer {
-  readonly specs: ChartSpec[] = [];
-  constructor(private readonly failing = false) {}
-  async render(spec: ChartSpec) {
-    if (this.failing) throw new Error("resvg crashed");
-    this.specs.push(spec);
-    return Buffer.from("png");
-  }
-  /** The data rows of the latest chart. */
-  values() {
-    return (this.specs.at(-1)!.data as { values: unknown[] }).values;
-  }
-}
-
-/** Stands in for Lens scores. */
-class RecordingScorer implements FeedbackScorer {
-  readonly scores: Parameters<FeedbackScorer["score"]>[0][] = [];
-  score(args: Parameters<FeedbackScorer["score"]>[0]) {
-    this.scores.push(args);
-  }
-}
-
-function inMemoryClient(name: string, connect: (transport: InMemoryTransport) => Promise<void>) {
-  return new McpClient({
-    name,
-    versionNegotiation: { mode: "auto" },
-    transport: {
-      type: "custom",
-      create: async () => {
-        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-        await connect(serverSide);
-        return clientSide;
-      },
-    },
-  });
-}
-
 describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   let db: Db;
   let pool: Awaited<ReturnType<typeof setupTestDb>>["pool"];
@@ -225,12 +179,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       .update(users)
       .set({ telegramUserId: TELEGRAM_A, role: "manager" })
       .where(eq(users.id, ids.staffA));
-    mcp = await McpClientGroup.connect({
-      clients: [
-        inMemoryClient("kitchen", (t) => createKitchenServer(db).connect(t)),
-        inMemoryClient("impact", (t) => createImpactServer(db).connect(t)),
-      ],
-    });
+    mcp = await connectInMemoryServers(db);
   });
 
   afterAll(async () => {
