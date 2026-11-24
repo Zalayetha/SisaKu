@@ -1,23 +1,24 @@
-import { sendChannelMessage, type ChannelAddress, type ChannelEvent } from "@anvia/channel";
-import { telegram } from "@anvia/telegram";
+import {
+  sendChannelMessage,
+  type Channel,
+  type ChannelAddress,
+  type ChannelEvent,
+} from "@anvia/channel";
 import type { TurnIO, TurnResult } from "./turn";
 
 /**
  * Thin adapter: Telegram in polling mode (ADR 0012), every event handed to the turn handler,
  * which may answer with a message (with buttons), a chart photo after it (ADR 0015), and edits of
- * earlier waste cards (ADR 0014).
+ * earlier waste cards (ADR 0014). The channel is passed in, so tests can use a fake one.
  * Turns are serialised per conversation so chat history stays in order.
  */
 export function createTelegramService(options: {
-  token: string;
+  channel: Channel;
   handleTurn: (event: ChannelEvent, io: TurnIO) => Promise<TurnResult>;
   log?: (message: string, error?: unknown) => void;
 }) {
   const log = options.log ?? ((message, error) => console.error(message, error ?? ""));
-  const channel = telegram({
-    token: options.token,
-    onError: (error, context) => log(`Telegram ${context.operation} error`, error),
-  });
+  const { channel } = options;
   const queues = new Map<string, Promise<void>>();
 
   async function handle(event: ChannelEvent) {
