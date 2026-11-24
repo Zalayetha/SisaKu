@@ -11,6 +11,20 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-24.1
+
+- Date: 2026-11-24
+- Issue: #54 (ADR 0014)
+- Fingerprint: `1013aeba6e31b070`
+- Changed, rule 9: "find the entry with list_entries…" → "if the chat shows the entry was just
+  saved, with its entry_id, call update_entry with that id. Otherwise find the entry with
+  list_entries (narrow it by day, item or cause), then update_entry with its id."
+- Why: Simpan, Batal and Ubah taps are now in the chat history; a saved one ends with an
+  `entry_id: <id>, …` line. A correction right after Simpan can go straight to update_entry
+  instead of a lookup that may pick the wrong entry.
+- Eval to move: tool-call correctness (new case `correct-just-saved`: history ends with a saved
+  entry, the first call should be update_entry with its id).
+
 ## 2026-11-23.3
 
 - Date: 2026-11-23

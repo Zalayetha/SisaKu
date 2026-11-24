@@ -15,6 +15,7 @@ ZALS-16 lets staff log waste in the Kitchen Copilot by sending a photo or a text
 - Every waste guess needs a confirmation, whatever its confidence. The threshold changes the card: at 0.6 or higher it shows the guess with a one-tap Simpan; below 0.6 it says the bot is unsure, offers up to three likely menu items, and shows no Simpan until the user has supplied the item and portion count.
 - Without a stated cause the card asks for one of the five causes; there is no default, so cause reports are not skewed. That card shows the five causes and no Batal, because Anvia Channel sends at most 5 actions per message (added 2026-11-24, #53); the user cancels from the next card, or the guess expires after 30 minutes. Candidate buttons cut menu names longer than Anvia's 80-character label limit.
 - `update_entry` stays a model tool for corrections to saved entries, open to any user of the outlet for the MVP.
+- Taps are fixed code, so the model would not see them. Once delivered, Simpan, Batal and Ubah are added to the chat history as a `[Simpan]` / `[Batal]` / `[Ubah]` user line and the text the user saw; a saved one ends with `entry_id: <id>, …`, so a correction right after Simpan can call `update_entry` with that id. Cause and candidate taps, and refused or failed taps, are not recorded (added 2026-11-24, #54).
 
 **What a waste guess holds**
 

@@ -23,6 +23,8 @@ type Case = {
   role: "staff" | "manager" | "owner";
   today: string;
   openWasteGuess?: string;
+  /** Earlier chat, oldest first, sent before `message` as the Copilot's chat history would be. */
+  history?: { role: "user" | "assistant"; content: string }[];
   expected: { tool: string | null; args?: Record<string, unknown> };
 };
 type Dataset = { outlet: string; cases: Case[] };
@@ -40,7 +42,7 @@ const AREAS = {
   co2e: 2,
   prep_log: 1,
   waste_logging: 2,
-  correction: 1,
+  correction: 2,
   no_tool: 2,
 };
 
@@ -103,19 +105,30 @@ describe("tool-call eval dataset", () => {
     mock.menuItems.filter((m) => m.outletId === outlet.id).map((m) => [m.name, m.id]),
   );
 
-  it("has 25 cases with unique ids, in the agreed mix of areas and languages", () => {
+  it("has 26 cases with unique ids, in the agreed mix of areas and languages", () => {
     expect(outlet).toBeDefined();
-    expect(dataset.cases).toHaveLength(25);
-    expect(new Set(dataset.cases.map((c) => c.id)).size).toBe(25);
+    expect(dataset.cases).toHaveLength(26);
+    expect(new Set(dataset.cases.map((c) => c.id)).size).toBe(26);
     const areas: Record<string, number> = {};
     for (const c of dataset.cases) areas[c.area] = (areas[c.area] ?? 0) + 1;
     expect(areas).toEqual(AREAS);
-    expect(dataset.cases.filter((c) => c.language === "id")).toHaveLength(15);
+    expect(dataset.cases.filter((c) => c.language === "id")).toHaveLength(16);
     for (const c of dataset.cases) {
       expect(["staff", "manager", "owner"]).toContain(c.role);
       expect(c.today).toBe(mock.endDate);
       expect(c.message.trim()).not.toBe("");
     }
+  });
+
+  it("gives history as user/assistant pairs, as the chat history holds it", () => {
+    for (const c of dataset.cases.filter((c) => c.history)) {
+      expect(c.history!.length % 2, c.id).toBe(0);
+      c.history!.forEach((m, i) => {
+        expect(m.role, c.id).toBe(i % 2 === 0 ? "user" : "assistant");
+        expect(m.content.trim(), c.id).not.toBe("");
+      });
+    }
+    expect(dataset.cases.some((c) => c.history)).toBe(true);
   });
 
   it("expects only tools the Copilot is offered, or no tool", () => {
