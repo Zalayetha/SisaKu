@@ -3,7 +3,7 @@ import type { CompletionModel, JsonObject } from "@anvia/core";
 import type { AgentObserver, AgentRunObserver } from "@anvia/core/observability";
 import { COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
 import { ChatHistory } from "../src/history";
-import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "../src/testing/harness";
+import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "../src/testing/fakes";
 import { APOLOGY, createTurnHandler } from "../src/turn";
 import { createUserLookup } from "../src/users";
 import type { CopilotInput } from "./cases";

@@ -42,12 +42,8 @@ import {
 } from "./waste/actions";
 import { actionId, parseActionId } from "./waste/card";
 import { createChartRenderer } from "./charts/render";
-import {
-  connectInMemoryServers,
-  FakePhotoStore,
-  RecordingRenderer,
-  RecordingScorer,
-} from "./testing/harness";
+import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "./testing/fakes";
+import { connectInMemoryServers } from "./testing/mcp-servers";
 import { createUserLookup, type Db } from "./users";
 import { GuessStore } from "./waste/guess";
 

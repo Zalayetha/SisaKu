@@ -5,7 +5,7 @@ import type { CopilotRole } from "@sisaku/agents";
 import { createDb, outlets, users } from "@sisaku/db";
 import { generateMockData, loadDataset } from "@sisaku/mock-data";
 import { eq } from "drizzle-orm";
-import { connectInMemoryServers } from "../src/testing/harness";
+import { connectInMemoryServers } from "../src/testing/mcp-servers";
 import type { Db } from "../src/users";
 import { EVAL_OUTLET } from "./cases";
 
