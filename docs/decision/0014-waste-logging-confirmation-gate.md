@@ -13,7 +13,7 @@ ZALS-16 lets staff log waste in the Kitchen Copilot by sending a photo or a text
 
 - The model never sees `log_waste`. It calls a local tool, `propose_waste_entry`, which stores a waste guess and sends a card with **Simpan / Ubah / Batal** buttons (Anvia Channel actions). Only a tap on Simpan by the user who created the guess makes fixed code call `log_waste`, with `outlet_id` and `confirmed_by` taken from the looked-up user. A prompt cannot log waste without a confirmation, whatever it says.
 - Every waste guess needs a confirmation, whatever its confidence. The threshold changes the card: at 0.6 or higher it shows the guess with a one-tap Simpan; below 0.6 it says the bot is unsure, offers up to three likely menu items, and shows no Simpan until the user has supplied the item and portion count.
-- Without a stated cause the card asks for one of the five causes; there is no default, so cause reports are not skewed.
+- Without a stated cause the card asks for one of the five causes; there is no default, so cause reports are not skewed. That card shows the five causes and no Batal, because Anvia Channel sends at most 5 actions per message (added 2026-11-24, #53); the user cancels from the next card, or the guess expires after 30 minutes. Candidate buttons cut menu names longer than Anvia's 80-character label limit.
 - `update_entry` stays a model tool for corrections to saved entries, open to any user of the outlet for the MVP.
 
 **What a waste guess holds**
