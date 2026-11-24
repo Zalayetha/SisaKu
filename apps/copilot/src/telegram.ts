@@ -57,7 +57,9 @@ export function createTelegramService(options: {
     }
   }
 
+  /** Sends a result, then reports it delivered (the turn writes chat history there). */
   async function deliver(result: Exclude<TurnResult, { type: "skip" }>, address: ChannelAddress) {
+    let resentId: string | undefined;
     for (const edit of result.edits ?? []) {
       const message = { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) };
       try {
@@ -68,17 +70,19 @@ export function createTelegramService(options: {
         // A tap's card update is the whole answer, and the tap has already changed the guess
         // (a cause chosen, the entry saved), so send the updated card as a new message; its
         // buttons carry the guess id and work from there. If that fails too, deliver fails.
-        if (result.type === "edit") await sendChannelMessage({ channel, address, message });
+        if (result.type === "edit") {
+          resentId = (await sendChannelMessage({ channel, address, message })).at(-1)?.id;
+        }
       }
     }
+    if (result.type === "edit") result.onDelivered?.(resentId);
     if (result.type === "reply") {
       const sent = await sendChannelMessage({
         channel,
         address,
         message: { text: result.text, ...(result.actions ? { actions: result.actions } : {}) },
       });
-      const last = sent.at(-1);
-      if (last) result.onSent?.(last.id);
+      result.onDelivered?.(sent.at(-1)?.id);
       // The chart follows the text; the text is already delivered, so a failure only logs.
       if (result.chart) {
         await sendChannelMessage({

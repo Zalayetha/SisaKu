@@ -259,7 +259,17 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     }
   }
 
-  function handler(model: CompletionModel, observer: AgentObserver, extra: Partial<TurnDeps> = {}) {
+  /**
+   * The turn handler as the Telegram service drives it: each result is checked as Anvia would
+   * check it and, unless `deliver` is false, reported delivered (a reply under a new message id).
+   */
+  function handler(
+    model: CompletionModel,
+    observer: AgentObserver,
+    extra: Partial<TurnDeps> = {},
+    { deliver = true }: { deliver?: boolean } = {},
+  ) {
+    let sent = 0;
     const handle = createTurnHandler({
       lookupUser: createUserLookup(db),
       db,
@@ -278,6 +288,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     return async (...args: Parameters<typeof handle>) => {
       const result = await handle(...args);
       assertSendable(result);
+      if (deliver && result.type !== "skip") {
+        result.onDelivered?.(result.type === "reply" ? `delivered-${++sent}` : undefined);
+      }
       return result;
     };
   }
@@ -305,7 +318,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   it("offers the allowlisted tools and propose_waste_entry, never log_waste or outlet_id", async () => {
     const model = new ScriptedModel([{ text: "Halo!" }]);
     const result = await handler(model, new RecordingObserver())(message("halo"));
-    expect(result).toEqual({ type: "reply", text: "Halo!" });
+    expect(result).toEqual({ type: "reply", text: "Halo!", onDelivered: expect.any(Function) });
 
     const tools = model.requests[0]!.tools;
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -408,7 +421,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   it("still replies when Lens is down", async () => {
     const model = new ScriptedModel([{ text: "Halo!" }]);
     const result = await handler(model, new RecordingObserver(true))(message("halo"));
-    expect(result).toEqual({ type: "reply", text: "Halo!" });
+    expect(result).toEqual({ type: "reply", text: "Halo!", onDelivered: expect.any(Function) });
   });
 
   it("remembers earlier messages of the conversation", async () => {
@@ -421,6 +434,17 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ["user", "halo"],
       ["assistant", "Halo Budi!"],
       ["user", "bagaimana kemarin?"],
+    ]);
+  });
+
+  it("remembers only replies that reached the user", async () => {
+    const model = new ScriptedModel([{ text: "Halo Budi!" }, { text: "Kemarin juga sedikit." }]);
+    const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
+    await lost(message("halo"));
+    await handler(model, new RecordingObserver())(message("halo"));
+    // The first reply never reached Telegram, so the model sees only the resent message.
+    expect(model.requests[1]!.chatHistory.map((m) => [m.role, m.content])).toEqual([
+      ["user", "halo"],
     ]);
   });
   describe("data questions and charts (ADR 0015)", () => {
@@ -478,6 +502,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         type: "reply",
         text: "Limbah naik pada 12 Feb.",
         chart: { png: Buffer.from("png"), title: "Limbah per hari (kg), 10–12 Feb 2026" },
+        onDelivered: expect.any(Function),
       });
       expect(model.lastToolResult()).toContain('"sent":true');
     });
@@ -545,7 +570,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         "Tidak ada limbah tercatat.",
       );
       const result = await handler(model, new RecordingObserver())(message("tren awal Feb?"));
-      expect(result).toEqual({ type: "reply", text: "Tidak ada limbah tercatat." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Tidak ada limbah tercatat.",
+        onDelivered: expect.any(Function),
+      });
       expect(charts.specs).toHaveLength(0);
       expect(model.lastToolResult()).toContain('"reason":"no_data"');
     });
@@ -613,7 +642,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         "Tanggalnya tidak valid.",
       );
       const result = await handler(model, new RecordingObserver())(message("tren?"));
-      expect(result).toEqual({ type: "reply", text: "Tanggalnya tidak valid." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Tanggalnya tidak valid.",
+        onDelivered: expect.any(Function),
+      });
       expect(charts.specs).toHaveLength(0);
       // An input error the model can fix, not a "no data" answer.
       expect(model.lastToolResult()).not.toContain("no_data");
@@ -625,7 +658,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       const result = await handler(model, new RecordingObserver(), {
         charts: new RecordingRenderer(true),
       })(message("tren?"));
-      expect(result).toEqual({ type: "reply", text: "Total 1,84 kg." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Total 1,84 kg.",
+        onDelivered: expect.any(Function),
+      });
       expect(model.lastToolResult()).toContain("could not be drawn");
     });
 
@@ -979,7 +1016,6 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ]);
       const handle = handler(model, observer);
       const card = asReply(await handle(message("nasi 3 porsi kebuang, kebanyakan masak")));
-      card.onSent?.("card-10");
       const ask = asReply(await handle(tap(button(card, "Ubah"), TELEGRAM_A, "card-10")));
       expect(ask.text).toBe(ASK_CORRECTION_TEXT);
 
@@ -1047,7 +1083,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         { text: "ok" },
       ]);
       const observer = new RecordingObserver();
-      const handle = handler(model, observer);
+      const handle = handler(model, observer, {}, { deliver: false });
       const card = asReply(await handle(message("nasi 2 porsi basi")));
       card.onFailed!();
 
@@ -1065,8 +1101,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         { text: "ok" },
       ]);
       const handle = handler(model, new RecordingObserver());
+      const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
       const first = asReply(await handle(message("nasi 2 porsi basi")));
-      const correction = asReply(await handle(message("eh, 3 porsi")));
+      const correction = asReply(await lost(message("eh, 3 porsi")));
       correction.onFailed!();
 
       // The user only ever saw the first card, so it can still be saved.
@@ -1213,7 +1250,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         await handler(model, new RecordingObserver())(message("soto 1 porsi basi")),
       );
       expect(model.lastToolResult()).toContain("not on this outlet's menu");
-      expect(result).toEqual({ type: "reply", text: "Soto tidak ada di menu outlet ini." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Soto tidak ada di menu outlet ini.",
+        onDelivered: expect.any(Function),
+      });
     });
 
     it("refuses a guess whose portions would weigh more than an entry can hold", async () => {
@@ -1234,7 +1275,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ]);
       const result = await handler(model, new RecordingObserver())(message("tumpeng 10000 porsi"));
       expect(model.lastToolResult()).toContain("more than");
-      expect(result).toEqual({ type: "reply", text: "Jumlahnya terlalu besar." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Jumlahnya terlalu besar.",
+        onDelivered: expect.any(Function),
+      });
     });
 
     it("answers other attachments with a fixed reply, without the model", async () => {
