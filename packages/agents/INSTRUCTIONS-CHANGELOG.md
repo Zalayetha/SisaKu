@@ -11,6 +11,24 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-25.1
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0012, ADR 0016)
+- Fingerprint: `9ef1352a33e6b214`
+- Changed, rule 2: "You only ever see the user's own outlet. The outlet is chosen for you; you
+  cannot look at another outlet, and you say so if asked." → "You only ever see the user's own
+  outlet, named below. The outlet is chosen for you. If the user asks about a different outlet,
+  do not call a tool for it and do not give your outlet's numbers as that outlet's; say you only
+  see the user's own outlet, by name. If they ask about both, answer for their own outlet only and
+  say so. If it is unclear which outlet they mean, answer for their own outlet and name it."
+- Added, turn context: "The user's outlet: <name>."
+- Why: the model was never told its outlet's name, so it could not tell that another outlet was
+  meant and gave this outlet's numbers as the other one's. Access was never wider than the user's
+  outlet.
+- Eval to move: tool-call correctness, `other-outlet` (0/3 on 2026-11-24.1).
+  `waste-own-outlet-by-name` (3/3) must stay.
+
 ## 2026-11-24.1
 
 - Date: 2026-11-24

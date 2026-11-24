@@ -335,6 +335,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     const labels = JSON.stringify(run!.start.trace);
     expect(labels).not.toContain("Budi");
     expect(labels).not.toContain("Staff A");
+    expect(labels).not.toContain("Warung Test"); // the outlet's name goes to the model only
   });
 
   it("gives the user's role and the outlet's local date to the model", async () => {
@@ -343,6 +344,15 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     // 2026-03-03T03:00Z is 10:00 in Asia/Jakarta.
     expect(model.requests[0]!.instructions).toContain("Current date: 2026-03-03 (Asia/Jakarta)");
     expect(model.requests[0]!.instructions).toContain("role: manager");
+  });
+
+  it("names the user's own outlet, and no person or other outlet, to the model", async () => {
+    const model = new ScriptedModel([{ text: "ok" }]);
+    await handler(model, new RecordingObserver())(message("halo"));
+    const instructions = model.requests[0]!.instructions!;
+    expect(instructions).toContain("The user's outlet: Warung Test.");
+    expect(instructions).not.toContain("Other Outlet");
+    expect(instructions).not.toContain("Staff A");
   });
 
   it("gives the outlet's menu, names and ids, so the model needs no get_menu call", async () => {

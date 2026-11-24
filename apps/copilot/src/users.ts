@@ -4,10 +4,14 @@ import type { CopilotRole } from "@sisaku/agents";
 
 export type Db = ReturnType<typeof createDb>["db"];
 
-/** The registered user behind a Telegram sender. No name: it never goes to the model or Lens. */
+/**
+ * The registered user behind a Telegram sender. Their own name is left out: it never goes to the
+ * model or Lens. The outlet's name goes to the model only.
+ */
 export type CopilotUser = {
   id: string;
   outletId: string;
+  outletName: string;
   role: CopilotRole;
   timezone: string;
 };
@@ -23,6 +27,7 @@ export function createUserLookup(db: Db): UserLookup {
       .select({
         id: users.id,
         outletId: users.outletId,
+        outletName: outlets.name,
         role: users.role,
         timezone: outlets.timezone,
       })

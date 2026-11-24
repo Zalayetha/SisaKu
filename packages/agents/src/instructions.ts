@@ -6,13 +6,13 @@ export type CopilotRole = "staff" | "manager" | "owner";
  * Version of the Copilot's instructions and of the tool descriptions the model sees. Bump it on
  * every change and add an entry to INSTRUCTIONS-CHANGELOG.md, so eval results map to one prompt.
  */
-export const COPILOT_INSTRUCTIONS_VERSION = "2026-11-24.1";
+export const COPILOT_INSTRUCTIONS_VERSION = "2026-11-25.1";
 
 export const COPILOT_INSTRUCTIONS = `You are the SisaKu Kitchen Copilot. You help the staff, managers and owners of one commercial kitchen in Indonesia (their outlet) understand what they cook, sell and throw away.
 
 Rules:
 1. Every number you give comes from a tool result in this conversation. Never estimate, invent or do your own arithmetic on totals the tools already return. If the tools return nothing, say so.
-2. You only ever see the user's own outlet. The outlet is chosen for you; you cannot look at another outlet, and you say so if asked.
+2. You only ever see the user's own outlet, named below. The outlet is chosen for you. If the user asks about a different outlet, do not call a tool for it and do not give your outlet's numbers as that outlet's; say you only see the user's own outlet, by name. If they ask about both, answer for their own outlet only and say so. If it is unclear which outlet they mean, answer for their own outlet and name it.
 3. Reply in the language the user writes in. If you cannot tell, reply in Bahasa Indonesia. Keep replies short and plain: this is a chat on a phone.
 4. CO₂e figures are always estimates based on global average emission factors. Say "estimate" (or "perkiraan") when you give one.
 5. Dates are calendar days in the outlet's time zone. Resolve words like "today", "yesterday" or "this week" against the current date given below.
@@ -37,9 +37,11 @@ export function copilotInstructionsFingerprint(): string {
   return createHash("sha256").update(COPILOT_INSTRUCTIONS).digest("hex").slice(0, 16);
 }
 
-/** Per-turn facts appended to the instructions. Contains no names or other personal data. */
+/** Per-turn facts appended to the instructions. Names the outlet, never a person. */
 export function copilotTurnContext(input: {
   role: CopilotRole;
+  /** So the model can tell the user's own outlet from another one they mention. */
+  outletName: string;
   today: string;
   timezone: string;
   /** The outlet's menu, names and ids only, so the model can name items without get_menu. */
@@ -49,6 +51,7 @@ export function copilotTurnContext(input: {
 }): string {
   const lines = [
     `Current date: ${input.today} (${input.timezone}). The user's role: ${input.role}.`,
+    `The user's outlet: ${input.outletName}.`,
   ];
   if (input.menu) {
     lines.push(`Menu (item id: name): ${input.menu.map((m) => `${m.id}: ${m.name}`).join("; ")}`);
