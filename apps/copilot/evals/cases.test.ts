@@ -105,10 +105,12 @@ describe("tool-call eval cases", () => {
     expect(toolCallCases.some((c) => c.input.history)).toBe(true);
   });
 
-  it("gives each saved entry its own day after the mock data, used by one case", () => {
-    expect(new Set(savedEntries.map((e) => e.day)).size).toBe(savedEntries.length);
+  it("gives each saved entry its own day, weeks from the mock data and each other", () => {
+    const days = [mock.endDate, ...savedEntries.map((e) => e.day)].map((d) => Date.parse(d));
+    for (let i = 1; i < days.length; i++) {
+      expect((days[i]! - days[i - 1]!) / 86_400_000).toBeGreaterThanOrEqual(28);
+    }
     for (const entry of savedEntries) {
-      expect(entry.day > mock.endDate, entry.day).toBe(true);
       expect(toolCallCases.filter((c) => c.input.today === entry.day)).toHaveLength(1);
       const menuItem = mock.menuItems.find((m) => m.id === entry.itemId)!;
       expect(Number(entry.weightKg)).toBeCloseTo(

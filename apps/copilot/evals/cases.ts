@@ -48,13 +48,14 @@ const YESTERDAY = { from: "2026-03-31", to: "2026-03-31" };
 const MARCH = { from: "2026-03-01", to: "2026-03-31" };
 
 /**
- * Saved waste the correction cases are about, each on its own day after the mock data ends, so
- * no other case reads it and a correction cannot change another case's numbers.
+ * Saved waste the correction cases are about, each on its own day, weeks after the mock data ends
+ * and weeks apart: a case asking about "this week" may read days after its own, and must not find
+ * these. A correction then cannot change another case's numbers either.
  */
 export const savedEntries = [
   {
     id: "3b9d1f52-6c0e-4a77-8f14-5d2a9e7c6b01",
-    day: "2026-04-02",
+    day: "2026-05-04",
     itemId: item("Rendang Sapi"),
     portionCount: 3,
     weightKg: "0.360",
@@ -62,7 +63,7 @@ export const savedEntries = [
   },
   {
     id: "7f3c2a10-5d4e-4b8a-9c61-2e8f0a4b9d17",
-    day: "2026-04-03",
+    day: "2026-06-01",
     itemId: item("Rendang Sapi"),
     portionCount: 3,
     weightKg: "0.360",
@@ -70,7 +71,7 @@ export const savedEntries = [
   },
   {
     id: "c41e8a06-92b7-4d3f-a5c8-0e6f7b1d2934",
-    day: "2026-04-04",
+    day: "2026-06-29",
     itemId: item("Ayam Goreng"),
     portionCount: 4,
     weightKg: "0.600",
@@ -385,11 +386,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
     input: {
       message: "Rendang yang saya catat tadi salah, harusnya 2 porsi bukan 3",
       role: "staff",
-      today: "2026-04-02",
+      today: "2026-05-04",
     },
     expected: {
       tool: "list_entries",
-      args: { from: "2026-04-02", to: "2026-04-02", item_id: item("Rendang Sapi") },
+      args: { from: "2026-05-04", to: "2026-05-04", item_id: item("Rendang Sapi") },
       absent: ["cause"],
     },
     metadata: { area: "correction", language: "id" },
@@ -413,7 +414,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
       ],
       message: "eh salah, harusnya 2 porsi",
       role: "staff",
-      today: "2026-04-03",
+      today: "2026-06-01",
     },
     expected: {
       tool: "update_entry",
@@ -427,11 +428,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
     input: {
       message: "The ayam goreng I logged earlier is wrong, it should be 2 portions, not 4",
       role: "staff",
-      today: "2026-04-04",
+      today: "2026-06-29",
     },
     expected: {
       tool: "list_entries",
-      args: { from: "2026-04-04", to: "2026-04-04", item_id: item("Ayam Goreng") },
+      args: { from: "2026-06-29", to: "2026-06-29", item_id: item("Ayam Goreng") },
       absent: ["cause"],
     },
     metadata: { area: "correction", language: "en" },
