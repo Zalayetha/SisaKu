@@ -6,15 +6,15 @@ import {
 } from "@anvia/channel";
 import type { TurnIO, TurnResult } from "./turn";
 
+/** Sent when a reply or a tapped card's update could not be delivered, instead of silence (#53). */
+export const DELIVERY_FAILED_TEXT = "Maaf, balasan gagal terkirim. Coba kirim lagi.";
+
 /**
  * Thin adapter: Telegram in polling mode (ADR 0012), every event handed to the turn handler,
  * which may answer with a message (with buttons), a chart photo after it (ADR 0015), and edits of
  * earlier waste cards (ADR 0014). The channel is passed in, so tests can use a fake one.
  * Turns are serialised per conversation so chat history stays in order.
  */
-/** Sent when a reply or a tapped card's update could not be delivered, instead of silence (#53). */
-export const DELIVERY_FAILED_TEXT = "Maaf, balasan gagal terkirim. Coba kirim lagi.";
-
 export function createTelegramService(options: {
   channel: Channel;
   handleTurn: (event: ChannelEvent, io: TurnIO) => Promise<TurnResult>;
