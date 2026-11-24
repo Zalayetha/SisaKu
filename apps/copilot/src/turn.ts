@@ -38,12 +38,20 @@ export type TurnResult =
       /** A chart to send as a photo after the text; its title is drawn on it (ADR 0015). */
       chart?: { png: Buffer; title: string };
       edits?: readonly CardEdit[];
-      /** Called with the id of the sent message, so a card can be edited later. */
-      onSent?: (messageId: string) => void;
+      /**
+       * Called once the message reached the user, with its id, so a card can be edited later.
+       * Chat history is written here, so the model only remembers what the user received.
+       */
+      onDelivered?: (messageId?: string) => void;
       /** Called when the message could not be delivered: a card nobody saw must not be saveable. */
       onFailed?: () => void;
     }
-  | { type: "edit"; edits: readonly CardEdit[] };
+  | {
+      type: "edit";
+      edits: readonly CardEdit[];
+      /** Called once the edit (or the card resent in its place) reached the user. */
+      onDelivered?: (messageId?: string) => void;
+    };
 
 /** What the channel offers a turn beyond the event itself. */
 export type TurnIO = {
@@ -146,8 +154,25 @@ export function createTurnHandler(deps: TurnDeps) {
         wasteDeps,
       );
       const edits = outcome.edit ? [{ messageId: event.messageId, ...outcome.edit }] : [];
-      if (outcome.reply) return { type: "reply", text: outcome.reply, edits };
-      return edits.length > 0 ? { type: "edit", edits } : { type: "skip" };
+      const { history } = outcome;
+      const remember = history
+        ? () => deps.history.append(event.conversation.id, history.user, history.assistant)
+        : undefined;
+      if (outcome.reply) {
+        const reply = { type: "reply" as const, text: outcome.reply, edits };
+        return remember ? { ...reply, onDelivered: remember } : reply;
+      }
+      if (edits.length === 0) return { type: "skip" };
+      return {
+        type: "edit",
+        edits,
+        onDelivered: (messageId) => {
+          // A card that could not be edited was resent: later edits must go to the new one.
+          const guess = messageId ? guesses.get(parsed.guessId) : undefined;
+          if (guess) guess.cardMessageId = messageId;
+          remember?.();
+        },
+      };
     } catch (error) {
       log("Waste card action failed", error);
       return { type: "reply", text: APOLOGY };
@@ -259,15 +284,15 @@ export function createTurnHandler(deps: TurnDeps) {
         shown = true;
         guess.traceId = result.trace?.traceId;
         const card = renderCard(guess, today);
-        deps.history.append(historyKey, historyText, card.text);
         const replacedId = turn.replaced?.cardMessageId;
         return {
           type: "reply",
           text: card.text,
           ...(card.actions ? { actions: card.actions } : {}),
           edits: replacedId ? [{ messageId: replacedId, text: REPLACED_CARD_TEXT }] : [],
-          onSent: (messageId) => {
-            guess.cardMessageId = messageId;
+          onDelivered: (messageId) => {
+            if (messageId) guess.cardMessageId = messageId;
+            deps.history.append(historyKey, historyText, card.text);
           },
           // Like a failed turn: the guess this card would have replaced stays open.
           onFailed: () => {
@@ -278,8 +303,12 @@ export function createTurnHandler(deps: TurnDeps) {
       }
       const reply = result.text.trim();
       if (result.type !== "response" || !reply) return { type: "reply", text: APOLOGY };
-      deps.history.append(historyKey, historyText, reply);
-      return { type: "reply", text: reply, ...(chartTurn.chart ? { chart: chartTurn.chart } : {}) };
+      return {
+        type: "reply",
+        text: reply,
+        ...(chartTurn.chart ? { chart: chartTurn.chart } : {}),
+        onDelivered: () => deps.history.append(historyKey, historyText, reply),
+      };
     } finally {
       // A guess from a failed turn is never shown, so it must not stay saveable; the guess it
       // would have replaced stays open instead.

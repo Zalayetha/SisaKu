@@ -62,6 +62,18 @@ function message(text: string, chat = "chat-1"): ChannelEvent {
   };
 }
 
+/** A tap on a button of the card sent as message "card-1". */
+const tap: ChannelEvent = {
+  type: "action",
+  id: "a-1",
+  platform: "telegram",
+  conversation: { id: "chat-1", kind: "direct" },
+  sender: { id: "1001", displayName: "Budi", bot: false },
+  messageId: "card-1",
+  actionId: "w:x:c0",
+  raw: {},
+};
+
 /** Starts a service over a fake channel, feeds it events, and waits until every turn is done. */
 async function run(
   results: (event: ChannelEvent) => TurnResult | Promise<TurnResult>,
@@ -81,14 +93,14 @@ async function run(
 }
 
 describe("Telegram service", () => {
-  it("sends a reply with its buttons and reports the sent message id", async () => {
+  it("sends a reply with its buttons and reports it delivered, with its message id", async () => {
     let sentId: string | undefined;
     const { channel } = await run(
       () => ({
         type: "reply",
         text: "Limbah yang dicatat",
         actions: [{ id: "w:x:s", label: "Simpan" }],
-        onSent: (id) => (sentId = id),
+        onDelivered: (id) => (sentId = id),
       }),
       [message("nasi 3 porsi")],
     );
@@ -142,6 +154,37 @@ describe("Telegram service", () => {
     expect(logs).toEqual(["Failed to send a chart"]);
   });
 
+  it("reports a tap's card update delivered once the edit succeeds", async () => {
+    const delivered: (string | undefined)[] = [];
+    const { channel } = await run(
+      () => ({
+        type: "edit",
+        edits: [{ messageId: "card-1", text: "Dibatalkan." }],
+        onDelivered: (id) => delivered.push(id),
+      }),
+      [tap],
+    );
+    expect(channel.edited).toEqual([{ id: "card-1", message: { text: "Dibatalkan." } }]);
+    expect(delivered).toEqual([undefined]);
+  });
+
+  it("resends a tap's card when the channel cannot edit messages at all", async () => {
+    const channel = new FakeChannel();
+    (channel as { edit?: unknown }).edit = undefined;
+    const delivered: (string | undefined)[] = [];
+    await run(
+      () => ({
+        type: "edit",
+        edits: [{ messageId: "card-1", text: "Dibatalkan." }],
+        onDelivered: (id) => delivered.push(id),
+      }),
+      [tap],
+      channel,
+    );
+    expect(channel.texts()).toEqual(["Dibatalkan."]);
+    expect(delivered).toEqual(["sent-1"]);
+  });
+
   it("handles one conversation's turns in order, even when an earlier turn is slower", async () => {
     const { channel } = await run(
       async (event) => {
@@ -155,17 +198,6 @@ describe("Telegram service", () => {
   });
 
   describe("when delivery fails (#53)", () => {
-    const tap: ChannelEvent = {
-      type: "action",
-      id: "a-1",
-      platform: "telegram",
-      conversation: { id: "chat-1", kind: "direct" },
-      sender: { id: "1001", displayName: "Budi", bot: false },
-      messageId: "card-1",
-      actionId: "w:x:c0",
-      raw: {},
-    };
-
     it("tells the user and discards the card's guess when the reply cannot be sent", async () => {
       const channel = new FakeChannel();
       channel.failSend = (m) =>
@@ -173,18 +205,20 @@ describe("Telegram service", () => {
           ? new RangeError("Channel message must not contain more than 5 actions")
           : undefined;
       let failed = 0;
+      let delivered = 0;
       const { logs } = await run(
         () => ({
           type: "reply",
           text: "Penyebabnya apa?",
           actions: [{ id: "w:x:c0", label: "Basi" }],
-          onSent: () => expect.fail("not sent"),
+          onDelivered: () => delivered++,
           onFailed: () => failed++,
         }),
         [message("nasi 3 porsi kebuang")],
         channel,
       );
       expect(failed).toBe(1);
+      expect(delivered).toBe(0);
       expect(channel.sent).toEqual([
         { conversationId: "chat-1", message: { text: DELIVERY_FAILED_TEXT } },
       ]);
@@ -197,10 +231,12 @@ describe("Telegram service", () => {
       const channel = new FakeChannel();
       channel.failEdit = () => new Error("Bad Request: message can't be edited");
       const actions = [{ id: "w:x:s", label: "Simpan" }];
+      const delivered: (string | undefined)[] = [];
       await run(
         () => ({
           type: "edit",
           edits: [{ messageId: "card-1", text: "Limbah yang dicatat", actions }],
+          onDelivered: (id) => delivered.push(id),
         }),
         [tap],
         channel,
@@ -208,18 +244,26 @@ describe("Telegram service", () => {
       expect(channel.sent).toEqual([
         { conversationId: "chat-1", message: { text: "Limbah yang dicatat", actions } },
       ]);
+      // The resent card is the one the user now has.
+      expect(delivered).toEqual(["sent-1"]);
     });
 
     it("tells the user when a tap's card can be neither edited nor sent", async () => {
       const channel = new FakeChannel();
       channel.failEdit = () => new Error("Bad Request: message can't be edited");
       channel.failSend = (m) => (m.text === "Tersimpan ✓" ? new Error("network down") : undefined);
+      let delivered = 0;
       await run(
-        () => ({ type: "edit", edits: [{ messageId: "card-1", text: "Tersimpan ✓" }] }),
+        () => ({
+          type: "edit",
+          edits: [{ messageId: "card-1", text: "Tersimpan ✓" }],
+          onDelivered: () => delivered++,
+        }),
         [tap],
         channel,
       );
       expect(channel.texts()).toEqual([DELIVERY_FAILED_TEXT]);
+      expect(delivered).toBe(0);
     });
 
     it("only logs when the fallback fails too, and keeps handling later messages", async () => {

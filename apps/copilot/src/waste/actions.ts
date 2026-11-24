@@ -36,8 +36,16 @@ export type WasteActionDeps = {
   log: Log;
 };
 
-/** What a button tap produces: an edit of the tapped card, and/or a new message. */
-export type ActionOutcome = { edit?: Card; reply?: string };
+/**
+ * What a button tap produces: an edit of the tapped card, and/or a new message. `history` is
+ * the pair to add to the chat history once that is delivered, so the model knows a guess was
+ * saved, cancelled or is being corrected (ADR 0014).
+ */
+export type ActionOutcome = {
+  edit?: Card;
+  reply?: string;
+  history?: { user: string; assistant: string };
+};
 
 type SavedEntry = {
   id: string;
@@ -68,9 +76,15 @@ export async function handleWasteAction(
   const { code } = input;
   if (code === "x") {
     deps.store.settle(guess.id, "cancelled");
-    return { edit: { text: "Dibatalkan." } };
+    const text = "Dibatalkan.";
+    return { edit: { text }, history: { user: "[Batal]", assistant: text } };
   }
-  if (code === "e") return { reply: ASK_CORRECTION_TEXT };
+  if (code === "e") {
+    return {
+      reply: ASK_CORRECTION_TEXT,
+      history: { user: "[Ubah]", assistant: ASK_CORRECTION_TEXT },
+    };
+  }
   if (code.startsWith("c")) {
     const cause = WASTE_CAUSES[Number(code.slice(1))];
     if (!cause || guessStage(guess) !== "need_cause") return {};
@@ -90,7 +104,11 @@ export async function handleWasteAction(
     try {
       const entries = await saveGuess(guess, deps);
       deps.store.settle(guess.id, "saved");
-      return { edit: savedCard(entries) };
+      const card = savedCard(entries);
+      // The ids let the model correct a just-saved entry with update_entry, without a lookup;
+      // each is named by its item, so a correction of one line of several maps to one id.
+      const ids = `entry_id: ${entries.map((e) => `${e.id} (${e.item_name})`).join(", ")}`;
+      return { edit: card, history: { user: "[Simpan]", assistant: `${card.text}\n${ids}` } };
     } catch (error) {
       // kitchen-mcp saved no line, so the guess stays open and Simpan can be tapped again.
       deps.log("Saving a waste guess failed", error);

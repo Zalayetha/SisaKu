@@ -259,7 +259,17 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     }
   }
 
-  function handler(model: CompletionModel, observer: AgentObserver, extra: Partial<TurnDeps> = {}) {
+  /**
+   * The turn handler as the Telegram service drives it: each result is checked as Anvia would
+   * check it and, unless `deliver` is false, reported delivered (a reply under a new message id).
+   */
+  function handler(
+    model: CompletionModel,
+    observer: AgentObserver,
+    extra: Partial<TurnDeps> = {},
+    { deliver = true }: { deliver?: boolean } = {},
+  ) {
+    let sent = 0;
     const handle = createTurnHandler({
       lookupUser: createUserLookup(db),
       db,
@@ -278,6 +288,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     return async (...args: Parameters<typeof handle>) => {
       const result = await handle(...args);
       assertSendable(result);
+      if (deliver && result.type !== "skip") {
+        result.onDelivered?.(result.type === "reply" ? `delivered-${++sent}` : undefined);
+      }
       return result;
     };
   }
@@ -305,7 +318,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   it("offers the allowlisted tools and propose_waste_entry, never log_waste or outlet_id", async () => {
     const model = new ScriptedModel([{ text: "Halo!" }]);
     const result = await handler(model, new RecordingObserver())(message("halo"));
-    expect(result).toEqual({ type: "reply", text: "Halo!" });
+    expect(result).toEqual({ type: "reply", text: "Halo!", onDelivered: expect.any(Function) });
 
     const tools = model.requests[0]!.tools;
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -408,7 +421,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
   it("still replies when Lens is down", async () => {
     const model = new ScriptedModel([{ text: "Halo!" }]);
     const result = await handler(model, new RecordingObserver(true))(message("halo"));
-    expect(result).toEqual({ type: "reply", text: "Halo!" });
+    expect(result).toEqual({ type: "reply", text: "Halo!", onDelivered: expect.any(Function) });
   });
 
   it("remembers earlier messages of the conversation", async () => {
@@ -423,6 +436,38 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ["user", "bagaimana kemarin?"],
     ]);
   });
+
+  it("remembers only replies that reached the user", async () => {
+    const model = new ScriptedModel([{ text: "Halo Budi!" }, { text: "Kemarin juga sedikit." }]);
+    const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
+    await lost(message("halo"));
+    await handler(model, new RecordingObserver())(message("halo"));
+    // The first reply never reached Telegram, so the model sees only the resent message.
+    expect(model.requests[1]!.chatHistory.map((m) => [m.role, m.content])).toEqual([
+      ["user", "halo"],
+    ]);
+  });
+
+  it("remembers no waste card that failed to reach the user", async () => {
+    const model = new ScriptedModel([
+      {
+        toolCall: {
+          name: "propose_waste_entry",
+          input: { lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "spoilage" },
+        },
+      },
+      { text: "ok" },
+      { text: "Halo." },
+    ]);
+    const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
+    const card = await lost(message("nasi 3 porsi basi"));
+    if (card.type === "reply") card.onFailed?.();
+    await handler(model, new RecordingObserver())(message("halo"));
+    expect(model.requests[2]!.chatHistory.map((m) => [m.role, m.content])).toEqual([
+      ["user", "halo"],
+    ]);
+  });
+
   describe("data questions and charts (ADR 0015)", () => {
     // Outlet A, local days 2026-02-10..12, apart from the dates other tests write to.
     // Rendang 0.120 kg and Rp 13,000 per portion; nasi 0.200 kg.
@@ -478,6 +523,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         type: "reply",
         text: "Limbah naik pada 12 Feb.",
         chart: { png: Buffer.from("png"), title: "Limbah per hari (kg), 10–12 Feb 2026" },
+        onDelivered: expect.any(Function),
       });
       expect(model.lastToolResult()).toContain('"sent":true');
     });
@@ -545,7 +591,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         "Tidak ada limbah tercatat.",
       );
       const result = await handler(model, new RecordingObserver())(message("tren awal Feb?"));
-      expect(result).toEqual({ type: "reply", text: "Tidak ada limbah tercatat." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Tidak ada limbah tercatat.",
+        onDelivered: expect.any(Function),
+      });
       expect(charts.specs).toHaveLength(0);
       expect(model.lastToolResult()).toContain('"reason":"no_data"');
     });
@@ -613,7 +663,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         "Tanggalnya tidak valid.",
       );
       const result = await handler(model, new RecordingObserver())(message("tren?"));
-      expect(result).toEqual({ type: "reply", text: "Tanggalnya tidak valid." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Tanggalnya tidak valid.",
+        onDelivered: expect.any(Function),
+      });
       expect(charts.specs).toHaveLength(0);
       // An input error the model can fix, not a "no data" answer.
       expect(model.lastToolResult()).not.toContain("no_data");
@@ -625,7 +679,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       const result = await handler(model, new RecordingObserver(), {
         charts: new RecordingRenderer(true),
       })(message("tren?"));
-      expect(result).toEqual({ type: "reply", text: "Total 1,84 kg." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Total 1,84 kg.",
+        onDelivered: expect.any(Function),
+      });
       expect(model.lastToolResult()).toContain("could not be drawn");
     });
 
@@ -979,7 +1037,6 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ]);
       const handle = handler(model, observer);
       const card = asReply(await handle(message("nasi 3 porsi kebuang, kebanyakan masak")));
-      card.onSent?.("card-10");
       const ask = asReply(await handle(tap(button(card, "Ubah"), TELEGRAM_A, "card-10")));
       expect(ask.text).toBe(ASK_CORRECTION_TEXT);
 
@@ -1041,13 +1098,131 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(entry).toMatchObject({ source: "text", portionCount: 3, cause: "over_prep" });
     });
 
+    describe("taps in the chat history (#54)", () => {
+      const roles = (model: ScriptedModel, request: number) =>
+        model.requests[request]!.chatHistory.map((m) => [m.role, m.content]);
+
+      it("records a saved guess with each entry's id and item, so a correction can use them", async () => {
+        const observer = new RecordingObserver();
+        const model = new ScriptedModel([
+          propose({
+            lines: [
+              { item_id: ids.nasi, portion_count: 3 },
+              { item_id: ids.rendang, portion_count: 2 },
+            ],
+            cause: "over_prep",
+          }),
+          { text: "ok" },
+          { text: "Siap." },
+        ]);
+        const handle = handler(model, observer);
+        const card = asReply(await handle(message("nasi 3, rendang 2 porsi kebuang")));
+        const saved = editOf(await handle(tap(button(card, "Simpan"))));
+        await handle(message("rendangnya harusnya 1 porsi"));
+
+        const [run] = await db
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
+        const entries = await entriesOfRun(run!.id);
+        const idOf = (itemId: string) => entries.find((e) => e.itemId === itemId)!.id;
+        // In card order, each id named by its item, so "rendangnya" maps to one id.
+        const idLine = `entry_id: ${idOf(ids.nasi)} (Nasi Putih), ${idOf(ids.rendang)} (Rendang Sapi)`;
+        expect(roles(model, 2).slice(2)).toEqual([
+          ["user", "[Simpan]"],
+          ["assistant", `${saved.text}\n${idLine}`],
+          ["user", "rendangnya harusnya 1 porsi"],
+        ]);
+      });
+
+      it("keeps the id of a tapped card that had to be resent, for later edits", async () => {
+        const model = new ScriptedModel([
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }] }),
+          { text: "ok" },
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+          { text: "ok" },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
+        const card = asReply(await handle(message("nasi 3 porsi kebuang")));
+        // The cause card could not be edited, so Telegram resent it as message "resent-1".
+        const ready = await lost(tap(button(card, "Basi")));
+        if (ready.type === "skip") throw new Error("expected a card update");
+        ready.onDelivered?.("resent-1");
+
+        const corrected = asReply(await handle(message("eh, 2 porsi")));
+        expect(corrected.edits).toEqual([{ messageId: "resent-1", text: REPLACED_CARD_TEXT }]);
+      });
+
+      it("records Batal and Ubah with the text the user saw", async () => {
+        const model = new ScriptedModel([
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 1 }], cause: "spoilage" }),
+          { text: "ok" },
+          propose({ lines: [{ item_id: ids.rendang, portion_count: 2 }], cause: "over_prep" }),
+          { text: "ok" },
+          { text: "Oke." },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const cancelled = asReply(await handle(message("nasi 1 porsi basi")));
+        await handle(tap(button(cancelled, "Batal")));
+        const edited = asReply(await handle(message("rendang 2 porsi kebanyakan masak")));
+        await handle(tap(button(edited, "Ubah")));
+        await handle(message("3 porsi"));
+
+        const taps = roles(model, 4).filter(([role, content]) =>
+          role === "user" ? String(content).startsWith("[") : false,
+        );
+        expect(taps).toEqual([
+          ["user", "[Batal]"],
+          ["user", "[Ubah]"],
+        ]);
+        const history = roles(model, 4);
+        expect(history[history.findIndex(([, c]) => c === "[Batal]") + 1]).toEqual([
+          "assistant",
+          "Dibatalkan.",
+        ]);
+        expect(history[history.findIndex(([, c]) => c === "[Ubah]") + 1]).toEqual([
+          "assistant",
+          ASK_CORRECTION_TEXT,
+        ]);
+      });
+
+      it("records no cause or candidate taps, and nothing for a tap on someone else's guess", async () => {
+        const model = new ScriptedModel([
+          { toolCall: { name: "get_menu", input: {} } },
+          propose({ candidate_item_ids: [ids.nasi, ids.rendang], confidence: 0.4 }),
+          { text: "Kurang yakin." },
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+          { text: "Oke." },
+          { text: "Halo." },
+          { text: "Halo juga." },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const unsure = asReply(await handle(photoMessage(), io));
+        await handle(tap(button(unsure, "Nasi Putih")));
+        const cause = asReply(await handle(message("2 porsi")));
+        await handle(tap(button(cause, "Basi")));
+        await handle(tap(button(cause, "Basi"), TELEGRAM_A2));
+        await handle(message("halo"));
+        await handle(message("halo", TELEGRAM_A2));
+
+        // A tap would show as a bracketed user line; "[foto]" marks the photo message itself.
+        const tapLines = roles(model, 5).filter(
+          ([role, c]) => role === "user" && /^\[(?!foto\])/.test(String(c)),
+        );
+        expect(tapLines).toEqual([]);
+        // The other user's chat holds nothing from the refused tap.
+        expect(roles(model, 6)).toEqual([["user", "halo"]]);
+      });
+    });
+
     it("discards a guess whose card could not be delivered, so it cannot be saved (#53)", async () => {
       const model = new ScriptedModel([
         propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
         { text: "ok" },
       ]);
       const observer = new RecordingObserver();
-      const handle = handler(model, observer);
+      const handle = handler(model, observer, {}, { deliver: false });
       const card = asReply(await handle(message("nasi 2 porsi basi")));
       card.onFailed!();
 
@@ -1065,8 +1240,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         { text: "ok" },
       ]);
       const handle = handler(model, new RecordingObserver());
+      const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
       const first = asReply(await handle(message("nasi 2 porsi basi")));
-      const correction = asReply(await handle(message("eh, 3 porsi")));
+      const correction = asReply(await lost(message("eh, 3 porsi")));
       correction.onFailed!();
 
       // The user only ever saw the first card, so it can still be saved.
@@ -1213,7 +1389,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         await handler(model, new RecordingObserver())(message("soto 1 porsi basi")),
       );
       expect(model.lastToolResult()).toContain("not on this outlet's menu");
-      expect(result).toEqual({ type: "reply", text: "Soto tidak ada di menu outlet ini." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Soto tidak ada di menu outlet ini.",
+        onDelivered: expect.any(Function),
+      });
     });
 
     it("refuses a guess whose portions would weigh more than an entry can hold", async () => {
@@ -1234,7 +1414,11 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ]);
       const result = await handler(model, new RecordingObserver())(message("tumpeng 10000 porsi"));
       expect(model.lastToolResult()).toContain("more than");
-      expect(result).toEqual({ type: "reply", text: "Jumlahnya terlalu besar." });
+      expect(result).toEqual({
+        type: "reply",
+        text: "Jumlahnya terlalu besar.",
+        onDelivered: expect.any(Function),
+      });
     });
 
     it("answers other attachments with a fixed reply, without the model", async () => {

@@ -2,7 +2,8 @@ import type { Message } from "@anvia/core";
 
 /**
  * Recent chat per conversation, in memory only (ADR 0012): lost on restart. Keeps the user's
- * messages and the Copilot's final replies, not tool calls, capped at `maxMessages`.
+ * messages and the Copilot's final replies, plus Simpan / Batal / Ubah taps as pairs (ADR 0014),
+ * not tool calls, capped at `maxMessages`. Written only once a reply has been delivered.
  */
 export class ChatHistory {
   readonly #conversations = new Map<string, Message[]>();
