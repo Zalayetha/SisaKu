@@ -42,7 +42,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 **Tracing**
 
 - One Anvia Lens trace per chat turn, with a span per LLM call and tool call, labelled with the agent (`copilot`), outlet id, user id, role and Telegram chat id. No names or Telegram usernames.
-- Lens runs in `safe` capture mode: spans keep timings, tokens, cost, tool names and errors, but not prompt, reply, chat history or tool argument and result bodies. Users can type anything, including personal data, so message content never leaves the app. Evals that check tool arguments (the tool-call correctness eval) read them from the agent run in the eval harness, not from Lens.
+- Lens runs in `safe` capture mode: spans keep timings, tokens, cost, tool names and errors, but not prompt, reply, chat history or tool argument and result bodies. Users can type anything, including personal data, so message content never leaves the app. Evals that check tool arguments (the tool-call correctness eval) read them from the agent run in the eval harness, not from Lens. Since 2026-11-24 (#60), eval runs on mock data may trace to Lens with full capture under their own service name, `sisaku-copilot-eval`; real chats stay in safe mode (ADR 0016).
 - Chat turns write no `agent_runs` rows until ZALS-16, when a turn first produces a stored waste entry.
 
 ## Consequences

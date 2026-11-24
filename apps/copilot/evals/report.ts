@@ -24,15 +24,19 @@ export type SuiteSummary = Tally & {
   cases: CaseRecord[];
 };
 
-type NamedSuite = SuiteSummary & { name: string; bar: number };
+/** A dataset's summary with the pass rate it must reach. */
+export type SuiteReport = SuiteSummary & { name: string; bar: number };
+
+/** Whether a dataset reached its bar. */
+export const meetsBar = (s: SuiteReport) => s.passed / s.total >= s.bar;
 
 const percent = (t: Tally) => `${((100 * t.passed) / t.total).toFixed(0)}%`;
 
 /** The run's score as plain text, for the terminal: per dataset, per area, then each failure. */
-export function formatText(suites: readonly NamedSuite[]): string {
+export function formatText(suites: readonly SuiteReport[]): string {
   const lines: string[] = [];
   for (const s of suites) {
-    const verdict = s.passed / s.total >= s.bar ? "PASS" : "FAIL";
+    const verdict = meetsBar(s) ? "PASS" : "FAIL";
     lines.push(
       `${s.name}: ${s.passed}/${s.total} (${percent(s)}), bar ${s.bar * 100}% → ${verdict}`,
     );
@@ -40,30 +44,6 @@ export function formatText(suites: readonly NamedSuite[]): string {
       lines.push(`  ${area.padEnd(16)} ${`${t.passed}/${t.total}`.padStart(5)}  ${percent(t)}`);
     }
     for (const f of s.failures) lines.push(`  ✗ ${f.id} [${f.area}]: ${f.reason}`);
-  }
-  return lines.join("\n");
-}
-
-const cell = (text: string) => text.replaceAll("|", "\\|").replaceAll("\n", " ");
-
-/** The same as Markdown, for the GitHub Actions job summary. */
-export function formatMarkdown(suites: readonly NamedSuite[]): string {
-  const lines: string[] = ["## Copilot eval", ""];
-  for (const s of suites) {
-    const verdict = s.passed / s.total >= s.bar ? "✅" : "❌";
-    lines.push(
-      `### ${s.name}: ${s.passed}/${s.total} (${percent(s)}) ${verdict} bar ${s.bar * 100}%`,
-      "",
-    );
-    lines.push("| Area | Passed | % |", "| --- | --- | --- |");
-    for (const [area, t] of Object.entries(s.areas)) {
-      lines.push(`| ${area} | ${t.passed}/${t.total} | ${percent(t)} |`);
-    }
-    if (s.failures.length > 0) {
-      lines.push("", "| Failed case | Area | Why |", "| --- | --- | --- |");
-      for (const f of s.failures) lines.push(`| ${f.id} | ${f.area} | ${cell(f.reason)} |`);
-    }
-    lines.push("");
   }
   return lines.join("\n");
 }

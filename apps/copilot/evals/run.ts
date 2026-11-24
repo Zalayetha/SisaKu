@@ -1,11 +1,16 @@
 import { execSync } from "node:child_process";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createLens, createModel } from "@sisaku/agents";
 import { loadToolCallDataset } from "./cases";
-import { formatMarkdown, formatText } from "./report";
-import { prepareEvalEnvironment, runCopilotEval, type DatasetName } from "./run-eval";
+import { formatText } from "./report";
+import {
+  prepareEvalEnvironment,
+  runCopilotEval,
+  type DatasetName,
+  type EvalEnvironment,
+} from "./run-eval";
 
 // `pnpm eval`: runs the Copilot evals against a throwaway database (see ADR 0016).
 //   --dataset tool-call   only this dataset (repeatable)
@@ -55,10 +60,11 @@ const lens = LENS_ENV.every((name) => process.env[name])
   : undefined;
 console.error(lens ? "Tracing to Lens as sisaku-copilot-eval." : "Lens not configured: no traces.");
 
-console.error("Preparing the eval database…");
-const env = await prepareEvalEnvironment(dbUrl);
-let exitCode: number = 1;
+let env: EvalEnvironment | undefined;
+let exitCode = 1;
 try {
+  console.error("Preparing the eval database…");
+  env = await prepareEvalEnvironment(dbUrl);
   const report = await runCopilotEval({
     env,
     model,
@@ -82,11 +88,10 @@ try {
   const file = `${dir}eval-${report.json.run.date.replaceAll(":", "-")}.json`;
   writeFileSync(file, `${JSON.stringify(report.json, null, 2)}\n`);
   console.error(`Result written to ${file}`);
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatMarkdown(report.suites));
-  }
+  for (const warning of report.warnings) console.error(`Warning: ${warning}`);
   exitCode = report.exitCode;
 } catch (error) {
+  // A setup error (wrong database, failed migration or seed) is not a score: exit 2.
   console.error(error instanceof Error ? error.message : error);
   exitCode = 2;
 } finally {
@@ -98,7 +103,7 @@ try {
       console.error("Lens could not be reached; scores above are unaffected.", error);
     }
   }
-  await env.close();
+  await env?.close();
 }
 // A timed-out turn may still be running; the result is already written.
 process.exit(exitCode);

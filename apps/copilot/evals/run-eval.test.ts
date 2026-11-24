@@ -11,7 +11,7 @@ import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@s
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import type { ToolCallCase } from "./cases";
-import { formatMarkdown, formatText } from "./report";
+import { formatText } from "./report";
 import { prepareEvalEnvironment, runCopilotEval, type EvalEnvironment } from "./run-eval";
 
 type Answer = { tool: string; input: JsonValue } | { text: string } | { hang: true };
@@ -193,9 +193,6 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     expect(text).toContain("tool-call: 3/6 (50%), bar 90% → FAIL");
     expect(text).toMatch(/sales\s+1\/2\s+50%/);
     expect(text).toContain("✗ wrong-arg [sales]: expected get_sales");
-    expect(formatMarkdown(report.suites)).toContain(
-      "| wrong-tool | waste_total | expected query_waste",
-    );
   });
 
   it("runs each case as its role at the eval outlet, on its own day, after its history", async () => {
@@ -388,16 +385,85 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
       expect(report.json.suites[0]!.cases[0]!.trace_id).toBe("trace-1");
     });
 
-    it("still scores every case when Lens fails, and notes the failure", async () => {
+    it("still scores every case when Lens fails, and warns about it", async () => {
+      const failingReporter: EvalReporter = {
+        report: () => {
+          throw new Error("Lens is down");
+        },
+      };
       const report = await runCopilotEval({
         env,
         model: model(),
         datasets: [{ name: "tool-call", cases: [yesterdayTotal] }],
-        lens: { observer: new FakeLensObserver(true), reporters: [] },
+        lens: { observer: new FakeLensObserver(true), reporters: [failingReporter] },
       });
 
       expect(report.suites[0]).toMatchObject({ passed: 1, total: 1 });
       expect(report.suites[0]!.cases[0]!.errors.join()).toContain("Lens observer failed");
+      expect(report.warnings).toEqual([
+        "tool-call: Lens could not trace 1 case(s); their scores are unaffected",
+        "tool-call: Lens did not receive 1 score(s)",
+      ]);
     });
+  });
+
+  it("passes the bar at exactly 90%", async () => {
+    const answers: Record<string, Answer> = {};
+    const cases = Array.from({ length: 10 }, (_, i) => {
+      answers[`pertanyaan nomor ${i}.`] =
+        i === 0 ? { tool: "get_menu", input: {} } : { text: "Oke." };
+      return toolCase({ id: `q${i}`, message: `pertanyaan nomor ${i}.`, expected: { tool: null } });
+    });
+
+    const report = await runCopilotEval({
+      env,
+      model: new ByMessageModel(answers),
+      datasets: [{ name: "tool-call", cases }],
+    });
+
+    expect(report.suites[0]).toMatchObject({ passed: 9, total: 10 });
+    expect(report.exitCode).toBe(0);
+  });
+
+  it("never compares outlet_id, even when a case lists it", async () => {
+    const model = new ByMessageModel({
+      "Berapa total limbah kemarin?": {
+        tool: "query_waste",
+        input: { filters: { from: "2026-03-31", to: "2026-03-31" }, group_by: "none" },
+      },
+    });
+    const withOutlet = toolCase({
+      ...yesterdayTotal,
+      expected: {
+        tool: "query_waste",
+        args: { filters: { outlet_id: "some-other-outlet", from: "2026-03-31" } },
+      },
+    });
+
+    const report = await runCopilotEval({
+      env,
+      model,
+      datasets: [{ name: "tool-call", cases: [withOutlet] }],
+    });
+
+    expect(report.suites[0]).toMatchObject({ passed: 1, total: 1 });
+  });
+
+  it("refuses a history that is not user/assistant pairs instead of dropping turns", async () => {
+    const model = new ByMessageModel({ "Berapa total limbah kemarin?": { text: "Oke." } });
+    const odd = toolCase({
+      ...yesterdayTotal,
+      expected: { tool: null },
+      history: [{ role: "user", content: "halo" }],
+    });
+
+    const report = await runCopilotEval({
+      env,
+      model,
+      datasets: [{ name: "tool-call", cases: [odd] }],
+    });
+
+    expect(report.suites[0]).toMatchObject({ passed: 0, total: 1 });
+    expect(report.suites[0]!.failures[0]!.reason).toContain("history must be user/assistant pairs");
   });
 });

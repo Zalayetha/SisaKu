@@ -1,3 +1,4 @@
+import type { CopilotRole } from "@sisaku/agents";
 import { readFileSync } from "node:fs";
 
 /** A tool-call correctness case (ADR 0015): the expected first tool call for one message. */
@@ -6,7 +7,7 @@ export type ToolCallCase = {
   area: string;
   message: string;
   language: "id" | "en";
-  role: "staff" | "manager" | "owner";
+  role: CopilotRole;
   today: string;
   /** Earlier chat, oldest first, sent before `message` as the Copilot's chat history would be. */
   history?: { role: "user" | "assistant"; content: string }[];

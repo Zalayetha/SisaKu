@@ -19,7 +19,7 @@ export type TurnOutput = {
   trace?: { traceId: string };
 };
 
-function parseArgs(args: string): unknown {
+function parseToolArgs(args: string): unknown {
   try {
     return JSON.parse(args);
   } catch {
@@ -55,7 +55,7 @@ function recordingObserver(
         ...(run?.trace ? { trace: run.trace } : {}),
         startGeneration: (generation) => run?.startGeneration?.(generation),
         startTool: (tool) => {
-          output.calls.push({ name: tool.toolName, args: parseArgs(tool.args) });
+          output.calls.push({ name: tool.toolName, args: parseToolArgs(tool.args) });
           return run?.startTool?.(tool);
         },
         end: (end) => run?.end(end),
@@ -95,7 +95,14 @@ export function createCopilotTarget(deps: TargetDeps) {
     const chatId = `eval-${testCase.id}`;
     const history = new ChatHistory(20);
     const earlier = input.history ?? [];
-    for (let i = 0; i + 1 < earlier.length; i += 2) {
+    // The chat history holds pairs; anything else is a dataset mistake, not a turn to drop.
+    if (
+      earlier.length % 2 !== 0 ||
+      earlier.some((m, i) => m.role !== (i % 2 ? "assistant" : "user"))
+    ) {
+      throw new Error(`${input.id}: history must be user/assistant pairs`);
+    }
+    for (let i = 0; i < earlier.length; i += 2) {
       history.append(chatId, earlier[i]!.content, earlier[i + 1]!.content);
     }
     const now = noonIn(input.today, env.outlet.timezone);

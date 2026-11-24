@@ -32,12 +32,12 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **Results**
 
-- The terminal shows passed/total per dataset and area, and every failed case with the expected and actual call. A JSON result is written to `apps/copilot/evals/results/` (git-ignored), with every case's calls and reply, tagged with the instructions version, the instructions fingerprint (`copilotInstructionsFingerprint()`, the value the changelog pins), the model id, the date and the commit. When `GITHUB_STEP_SUMMARY` is set, a Markdown table is appended to it.
+- The terminal shows passed/total per dataset and area, and every failed case with the expected and actual call. A JSON result is written to `apps/copilot/evals/results/` (git-ignored), with every case's calls and reply, tagged with the instructions version, the instructions fingerprint (`copilotInstructionsFingerprint()`, the value the changelog pins), the model id, the date and the commit. A case that could not be scored (a timeout or a turn error) has outcome `invalid` in the JSON and counts as failed.
 
 **Lens, when configured**
 
 - With all three `ANVIA_LENS_*` settings, each case is traced to Lens under the service name `sisaku-copilot-eval`, never `sisaku-copilot`, with an `eval` tag and `eval_case`, `eval_dataset`, `instructions_version` and `model` metadata, and its score is attached to its trace through `lens.evalReporter()`. Eval traces use full capture: they hold only mock data and scripted messages, and a trace without content cannot explain a failure. Production stays in safe capture (ADR 0012).
-- Without Lens the eval runs the same. A failing Lens observer is dropped for that case and noted in its errors; scores never depend on Lens.
+- Without Lens the eval runs the same. A failing Lens observer is dropped for that case and noted in its errors, and the run warns when cases went untraced or scores did not reach Lens; scores never depend on Lens.
 
 **Running it locally**
 
@@ -45,7 +45,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **CI waits for Lens on the VPS**
 
-- An `eval` job in GitHub Actions (#62) will run on pushes and pull requests that touch what the Copilot runs, and skip with a notice while `LLM_API_KEY` is not a repository secret. The maintainer chose to add it after Lens moves to the VPS (#67), so CI runs can trace there too. The eval scores without Lens, so this is a choice of order, not a dependency.
+- An `eval` job in GitHub Actions (#62) will run on pushes and pull requests that touch what the Copilot runs, write the score to the job summary, and skip with a notice while `LLM_API_KEY` is not a repository secret. The maintainer chose to add it after Lens moves to the VPS (#67), so CI runs can trace there too. The eval scores without Lens, so this is a choice of order, not a dependency.
 
 ## Consequences
 

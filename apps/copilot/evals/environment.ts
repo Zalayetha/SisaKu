@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { McpServer } from "@anvia/core/mcp";
+import type { CopilotRole } from "@sisaku/agents";
 import { createDb, menuItems, outlets, users } from "@sisaku/db";
 import { generateMockData, loadDataset } from "@sisaku/mock-data";
 import { eq } from "drizzle-orm";
@@ -10,8 +11,6 @@ import type { Db } from "../src/users";
 export const EVAL_OUTLET = "Warung Rina";
 export const EVAL_OWNER_TELEGRAM_ID = "eval-owner";
 
-type Role = "staff" | "manager" | "owner";
-
 /** Everything a case runs against: a throwaway database seeded with the default mock data. */
 export type EvalEnvironment = {
   db: Db;
@@ -19,7 +18,7 @@ export type EvalEnvironment = {
   outlet: { id: string; name: string; timezone: string };
   /** The eval outlet's menu, name → id, for `{item:<name>}` placeholders. */
   menu: ReadonlyMap<string, string>;
-  telegramIdByRole: Readonly<Record<Role, string>>;
+  telegramIdByRole: Readonly<Record<CopilotRole, string>>;
   close(): Promise<void>;
 };
 
@@ -60,7 +59,7 @@ export async function prepareEvalEnvironment(url: string): Promise<EvalEnvironme
     .select({ role: users.role, telegramUserId: users.telegramUserId })
     .from(users)
     .where(eq(users.outletId, outlet.id));
-  const telegramId = (role: Role) => {
+  const telegramId = (role: CopilotRole) => {
     const id = people.find((p) => p.role === role)?.telegramUserId;
     if (!id) throw new Error(`${EVAL_OUTLET} has no ${role} with a Telegram id`);
     return id;

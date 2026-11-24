@@ -5,7 +5,7 @@ import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@s
 import type { ToolCallCase } from "./cases";
 import type { EvalEnvironment } from "./environment";
 import { toolCallMetric } from "./metrics";
-import { summarizeSuite, type SuiteSummary } from "./report";
+import { meetsBar, summarizeSuite, type SuiteReport } from "./report";
 import { createCopilotTarget, type TurnOutput } from "./target";
 
 export { prepareEvalEnvironment, type EvalEnvironment } from "./environment";
@@ -17,8 +17,6 @@ export const BARS: Record<DatasetName, number> = { "tool-call": 0.9 };
 
 export const DEFAULT_TIMEOUT_MS = 90_000;
 export const DEFAULT_CONCURRENCY = 4;
-
-export type SuiteReport = SuiteSummary & { name: DatasetName; bar: number };
 
 /** What a run measured, against which instructions and model; written as the JSON result. */
 export type EvalResultJson = {
@@ -32,7 +30,13 @@ export type EvalResultJson = {
   suites: SuiteReport[];
 };
 
-export type EvalReport = { suites: SuiteReport[]; exitCode: 0 | 1; json: EvalResultJson };
+export type EvalReport = {
+  suites: SuiteReport[];
+  exitCode: 0 | 1;
+  json: EvalResultJson;
+  /** Things to tell the user that do not change a score, such as Lens failing. */
+  warnings: string[];
+};
 
 export type RunOptions = {
   env: EvalEnvironment;
@@ -73,6 +77,7 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
   if (selected.length === 0) throw new Error("No eval cases selected");
 
   const suites: SuiteReport[] = [];
+  const warnings: string[] = [];
   for (const dataset of selected) {
     const result = await runEvalSuite({
       name: dataset.name,
@@ -90,12 +95,27 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
       reporters: options.lens?.reporters ?? [],
       reporterErrorPolicy: "collect",
     });
-    suites.push({ name: dataset.name, bar: BARS[dataset.name], ...summarizeSuite(result) });
+    const suite = { name: dataset.name, bar: BARS[dataset.name], ...summarizeSuite(result) };
+    suites.push(suite);
+    const untraced = suite.cases.filter((c) =>
+      c.errors.some((e) => e.startsWith("Lens observer failed")),
+    ).length;
+    if (untraced > 0) {
+      warnings.push(
+        `${dataset.name}: Lens could not trace ${untraced} case(s); their scores are unaffected`,
+      );
+    }
+    if (result.reporterErrors.length > 0) {
+      warnings.push(
+        `${dataset.name}: Lens did not receive ${result.reporterErrors.length} score(s)`,
+      );
+    }
   }
-  const failed = suites.some((s) => s.passed / s.total < s.bar);
+  const failed = !suites.every(meetsBar);
   return {
     suites,
     exitCode: failed ? 1 : 0,
+    warnings,
     json: {
       run: {
         date,
