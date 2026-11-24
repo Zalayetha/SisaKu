@@ -259,6 +259,34 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     });
   });
 
+  it("prints each case to the terminal when asked, and leaves the exit code to the bar", async () => {
+    const answers = Array.from({ length: 9 }, (_, i) => [`pesan ${i}.`, { text: "Oke." }] as const);
+    const model = new ByMessageModel({
+      ...Object.fromEntries(answers),
+      "pesan salah": { tool: "get_menu", input: {} },
+    });
+    const cases = [
+      ...answers.map(([message], i) =>
+        toolCase({ id: `ok-${i}`, message, expected: { tool: null } }),
+      ),
+      toolCase({ id: "wrong", message: "pesan salah", expected: { tool: null } }),
+    ];
+    const printed: string[] = [];
+    const before = process.exitCode;
+
+    const report = await runCopilotEval({
+      env,
+      model,
+      datasets: [{ name: "tool-call", cases }],
+      print: (text) => printed.push(text),
+    });
+
+    expect(printed.join("")).toContain("[PASS] ok-0");
+    expect(printed.join("")).toContain("[FAIL] wrong");
+    expect(report.exitCode).toBe(0); // 9/10 reaches the 90% bar
+    expect(process.exitCode).toBe(before);
+  });
+
   it("runs only the selected cases, repeats them, and refuses an empty selection", async () => {
     const model = new ByMessageModel({
       "Berapa total limbah kemarin?": { tool: "get_menu", input: {} },

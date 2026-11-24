@@ -11,7 +11,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **What runs**
 
-- `pnpm eval` runs the Copilot evals on `@anvia/core/evals` (`runEvalSuite`, custom metrics), following Carbon Scout's layout (cases, metrics, target, run). The code lives with the copilot app in `apps/copilot/evals/`, next to its datasets, because the turn handler and the local tools live there and `@sisaku/agents` cannot depend on the app. Metrics move into `@sisaku/agents` only when a pipeline eval needs them.
+- `pnpm eval` runs the Copilot evals on `@anvia/core/evals` (`runEvalCli`, custom metrics), following Carbon Scout's layout (cases, metrics, target, run). The code lives with the copilot app in `apps/copilot/evals/`, next to its datasets, because the turn handler and the local tools live there and `@sisaku/agents` cannot depend on the app. Metrics move into `@sisaku/agents` only when a pipeline eval needs them.
 - Each case runs through the real turn handler: the real instructions and tool descriptions, the menu in the turn context, `propose_waste_entry` and `send_chart`, and kitchen-mcp and impact-mcp over in-memory transport. A wrapping observer records every tool call (name and arguments) and the reply. No Telegram is involved.
 - The model is the production one (`createModel()`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL_ID`).
 
@@ -32,7 +32,8 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **Results**
 
-- The terminal shows passed/total per dataset and area, and every failed case with the expected and actual call. A JSON result is written to `apps/copilot/evals/results/` (git-ignored), with every case's calls and reply, tagged with the instructions version, the instructions fingerprint (`copilotInstructionsFingerprint()`, the value the changelog pins), the model id, the date and the commit. A case that could not be scored (a timeout or a turn error) has outcome `invalid` in the JSON and counts as failed.
+- `runEvalCli` prints every case as Anvia formats it (values cut at 300 characters). Its exit code is not used: it fails on any failed case and exits 2 on an unscored one, while ours follows the bar.
+- After that, the terminal shows passed/total per dataset and area, and every failed case with the expected and actual call. A JSON result is written to `apps/copilot/evals/results/` (git-ignored), with every case's calls and reply, tagged with the instructions version, the instructions fingerprint (`copilotInstructionsFingerprint()`, the value the changelog pins), the model id, the date and the commit. A case that could not be scored (a timeout or a turn error) has outcome `invalid` in the JSON and counts as failed.
 
 **Lens, when configured**
 

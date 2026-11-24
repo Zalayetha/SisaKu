@@ -1,5 +1,5 @@
 import type { CompletionModel } from "@anvia/core";
-import { runEvalSuite, type EvalReporter } from "@anvia/core/evals";
+import { runEvalCli, type EvalReporter } from "@anvia/core/evals";
 import type { AgentObserver } from "@anvia/core/observability";
 import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@sisaku/agents";
 import type { ToolCallCase } from "./cases";
@@ -17,6 +17,8 @@ export const BARS: Record<DatasetName, number> = { "tool-call": 0.9 };
 
 export const DEFAULT_TIMEOUT_MS = 90_000;
 export const DEFAULT_CONCURRENCY = 4;
+/** Longest value printed per case; the JSON result keeps everything. */
+const PRINT_MAX_LENGTH = 300;
 
 /** What a run measured, against which instructions and model; written as the JSON result. */
 export type EvalResultJson = {
@@ -52,6 +54,8 @@ export type RunOptions = {
   repeat?: number;
   /** The commit under test, recorded in the result. */
   commit?: string;
+  /** Receives every case's outcome as text, for the terminal; nothing is printed without it. */
+  print?: (text: string) => void;
   /** Lens, when configured: traces every case and receives every score with its trace. */
   lens?: { observer: AgentObserver; reporters: readonly EvalReporter<ToolCallCase, TurnOutput>[] };
 };
@@ -79,7 +83,8 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
   const suites: SuiteReport[] = [];
   const warnings: string[] = [];
   for (const dataset of selected) {
-    const result = await runEvalSuite({
+    // `exitCode` stays unset: Anvia's exit code fails on any failed case, ours follows the bar.
+    const result = await runEvalCli({
       name: dataset.name,
       cases: dataset.cases,
       target: createCopilotTarget({
@@ -94,6 +99,9 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
       trace: ({ output }) => output?.trace,
       reporters: options.lens?.reporters ?? [],
       reporterErrorPolicy: "collect",
+      format: options.print ? "pretty" : "quiet",
+      maxValueLength: PRINT_MAX_LENGTH,
+      ...(options.print ? { output: { stdout: options.print } } : {}),
     });
     const suite = { name: dataset.name, bar: BARS[dataset.name], ...summarizeSuite(result) };
     suites.push(suite);

@@ -71,6 +71,7 @@ try {
     datasets: names.map((name) => ({ name, cases: DATASETS[name]() })),
     ...(values.case ? { caseIds: values.case } : {}),
     repeat,
+    print: (text) => process.stdout.write(text),
     ...(commit ? { commit } : {}),
     ...(lens
       ? {
@@ -82,7 +83,7 @@ try {
       : {}),
   });
 
-  console.log(formatText(report.suites));
+  console.log(`\n${formatText(report.suites)}`);
   const dir = fileURLToPath(new URL("./results/", import.meta.url));
   mkdirSync(dir, { recursive: true });
   const file = `${dir}eval-${report.json.run.date.replaceAll(":", "-")}.json`;
