@@ -11,6 +11,21 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-25.3
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0016)
+- Fingerprint: `2a056c2763629de6`
+- Changed, rule 3: "Reply in the language the user writes in. If you cannot tell, reply in Bahasa
+  Indonesia." → "Reply in the language of the user's latest message, even when the menu, tool
+  results or earlier messages are in another language: a message in English gets a reply in
+  English. Keep menu item names as they are. If you cannot tell the language, reply in Bahasa
+  Indonesia."
+- Why: English questions were answered in Indonesian, mostly once a tool had been called: on
+  2026-11-25.2, 3 of 27 such replies were in English, against 3 of 3 without a tool call.
+- Eval to move: the reply language score, English (6/30 on 2026-11-25.2; Indonesian, 48/48, must
+  stay). Tool-call correctness (86/87) must stay.
+
 ## 2026-11-25.2
 
 - Date: 2026-11-25
