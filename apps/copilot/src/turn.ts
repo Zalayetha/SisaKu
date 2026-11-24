@@ -269,7 +269,11 @@ export function createTurnHandler(deps: TurnDeps) {
           onSent: (messageId) => {
             guess.cardMessageId = messageId;
           },
-          onFailed: () => guesses.delete(guess.id),
+          // Like a failed turn: the guess this card would have replaced stays open.
+          onFailed: () => {
+            guesses.delete(guess.id);
+            if (turn.replaced) guesses.add(turn.replaced);
+          },
         };
       }
       const reply = result.text.trim();

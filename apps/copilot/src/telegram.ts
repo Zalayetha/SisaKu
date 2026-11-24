@@ -59,14 +59,17 @@ export function createTelegramService(options: {
 
   async function deliver(result: Exclude<TurnResult, { type: "skip" }>, address: ChannelAddress) {
     for (const edit of result.edits ?? []) {
-      const editing = channel.edit?.(
-        { id: edit.messageId, address },
-        { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) },
-      );
-      // A tap's card update is the whole answer, so its failure counts as a failed delivery.
-      // Edits beside a reply touch older cards and are best-effort: they must not block the reply.
-      if (result.type === "edit") await editing;
-      else await editing?.catch((error: unknown) => log("Failed to edit a waste card", error));
+      const message = { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) };
+      try {
+        await channel.edit?.({ id: edit.messageId, address }, message);
+      } catch (error) {
+        log("Failed to edit a waste card", error);
+        // Edits beside a reply touch older cards and are best-effort: they must not block it.
+        // A tap's card update is the whole answer, and the tap has already changed the guess
+        // (a cause chosen, the entry saved), so send the updated card as a new message; its
+        // buttons carry the guess id and work from there. If that fails too, deliver fails.
+        if (result.type === "edit") await sendChannelMessage({ channel, address, message });
+      }
     }
     if (result.type === "reply") {
       const sent = await sendChannelMessage({
@@ -104,7 +107,7 @@ export function createTelegramService(options: {
       await channel.start((event) => {
         const key = event.conversation.id;
         const next = (queues.get(key) ?? Promise.resolve()).then(() => handle(event));
-        const settled = next.catch((error) => log("Failed to deliver a Copilot reply", error));
+        const settled = next.catch((error) => log("Copilot turn failed", error));
         queues.set(key, settled);
         void settled.then(() => {
           if (queues.get(key) === settled) queues.delete(key);

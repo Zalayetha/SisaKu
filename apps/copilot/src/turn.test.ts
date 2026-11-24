@@ -1057,12 +1057,33 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ).toEqual([]);
     });
 
+    it("restores the replaced guess when its correction's card could not be delivered", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
+        { text: "ok" },
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], corrects_open_guess: true }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const first = asReply(await handle(message("nasi 2 porsi basi")));
+      const correction = asReply(await handle(message("eh, 3 porsi")));
+      correction.onFailed!();
+
+      // The user only ever saw the first card, so it can still be saved.
+      const saved = await handle(tap(button(first, "Simpan")));
+      expect(editOf(saved).text).toContain("Nasi Putih: 2 porsi");
+    });
+
     it("sends every card within Anvia's limits at its largest: long names, 3 candidates, 5 lines", async () => {
       // Menu names are free text; these are longer than a Telegram button label may be (80).
       const long = [1, 2, 3].map((n) => ({
         id: `00000000-0000-4000-8000-00000000011${n}`,
         outletId: ids.outletA,
-        name: `Nasi Campur Spesial Komplit Nomor ${n} dengan Ayam Bakar, Sambal Matah, Telur Balado dan Kerupuk`,
+        // The third is 78 characters but 84 UTF-16 units, the length Anvia counts.
+        name:
+          n === 3
+            ? `Paket Rames Spesial Nomor 3 dengan Ayam Bakar, Sambal Matah dan Kerupuk ${"🍛".repeat(6)}`
+            : `Nasi Campur Spesial Komplit Nomor ${n} dengan Ayam Bakar, Sambal Matah, Telur Balado dan Kerupuk`,
         category: "main",
         costPerPortion: "20000",
         portionWeightKg: "0.300",

@@ -191,11 +191,31 @@ describe("Telegram service", () => {
       expect(logs).toEqual(["Failed to deliver a Copilot reply"]);
     });
 
-    it("tells the user when a tap's card cannot be updated", async () => {
+    // The tap already changed the guess (a cause chosen, or the entry saved), so the user gets
+    // the updated card as a new message, not a "send again" that could log the waste twice.
+    it("sends a tap's updated card as a new message when the card cannot be edited", async () => {
       const channel = new FakeChannel();
       channel.failEdit = () => new Error("Bad Request: message can't be edited");
+      const actions = [{ id: "w:x:s", label: "Simpan" }];
       await run(
-        () => ({ type: "edit", edits: [{ messageId: "card-1", text: "Limbah yang dicatat" }] }),
+        () => ({
+          type: "edit",
+          edits: [{ messageId: "card-1", text: "Limbah yang dicatat", actions }],
+        }),
+        [tap],
+        channel,
+      );
+      expect(channel.sent).toEqual([
+        { conversationId: "chat-1", message: { text: "Limbah yang dicatat", actions } },
+      ]);
+    });
+
+    it("tells the user when a tap's card can be neither edited nor sent", async () => {
+      const channel = new FakeChannel();
+      channel.failEdit = () => new Error("Bad Request: message can't be edited");
+      channel.failSend = (m) => (m.text === "Tersimpan ✓" ? new Error("network down") : undefined);
+      await run(
+        () => ({ type: "edit", edits: [{ messageId: "card-1", text: "Tersimpan ✓" }] }),
         [tap],
         channel,
       );

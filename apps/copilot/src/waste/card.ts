@@ -26,14 +26,18 @@ export function parseActionId(id: string): { guessId: string; code: string } | u
   return match ? { guessId: match[1]!, code: match[2]! } : undefined;
 }
 
-/** Menu names are free text; Anvia refuses a button label longer than 80 characters. */
+/**
+ * Menu names are free text; Anvia refuses a button label longer than 80 UTF-16 units (`length`,
+ * so an emoji counts as two). Longer names are cut, never inside an emoji, and end in "…".
+ */
 function buttonLabel(name: string): string {
-  const chars = [...name];
-  if (chars.length <= MAX_CHANNEL_ACTION_LABEL_LENGTH) return name;
-  return `${chars
-    .slice(0, MAX_CHANNEL_ACTION_LABEL_LENGTH - 1)
-    .join("")
-    .trimEnd()}…`;
+  if (name.length <= MAX_CHANNEL_ACTION_LABEL_LENGTH) return name;
+  let label = "";
+  for (const char of name) {
+    if (label.length + char.length > MAX_CHANNEL_ACTION_LABEL_LENGTH - 1) break;
+    label += char;
+  }
+  return `${label.trimEnd()}…`;
 }
 
 const kg = (n: number) => `${n.toLocaleString("id-ID", { maximumFractionDigits: 3 })} kg`;
