@@ -36,10 +36,10 @@ export type WasteActionDeps = {
   log: Log;
 };
 
-/** What a button tap produces: an edit of the tapped card, and/or a new message. */
 /**
- * What a tap did. `history` is the pair to add to the chat history once the answer is
- * delivered, so the model knows a guess was saved, cancelled or is being corrected (#54).
+ * What a button tap produces: an edit of the tapped card, and/or a new message. `history` is
+ * the pair to add to the chat history once that is delivered, so the model knows a guess was
+ * saved, cancelled or is being corrected (ADR 0014).
  */
 export type ActionOutcome = {
   edit?: Card;

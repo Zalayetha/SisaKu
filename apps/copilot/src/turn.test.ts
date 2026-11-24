@@ -447,6 +447,27 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ["user", "halo"],
     ]);
   });
+
+  it("remembers no waste card that failed to reach the user", async () => {
+    const model = new ScriptedModel([
+      {
+        toolCall: {
+          name: "propose_waste_entry",
+          input: { lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "spoilage" },
+        },
+      },
+      { text: "ok" },
+      { text: "Halo." },
+    ]);
+    const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
+    const card = await lost(message("nasi 3 porsi basi"));
+    if (card.type === "reply") card.onFailed?.();
+    await handler(model, new RecordingObserver())(message("halo"));
+    expect(model.requests[2]!.chatHistory.map((m) => [m.role, m.content])).toEqual([
+      ["user", "halo"],
+    ]);
+  });
+
   describe("data questions and charts (ADR 0015)", () => {
     // Outlet A, local days 2026-02-10..12, apart from the dates other tests write to.
     // Rendang 0.120 kg and Rp 13,000 per portion; nasi 0.200 kg.
