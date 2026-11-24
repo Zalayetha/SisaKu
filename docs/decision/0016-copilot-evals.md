@@ -23,6 +23,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 **Scored by code, not a judge**
 
 - Tool-call correctness: the first tool call must be the expected tool, and `expected.args` must match its arguments as a subset (objects may have extra keys; arrays match element by element and have the same length). `item("<name>")` in a case is the id from the seeded mock data. `tool: null` passes only with no tool call.
+- Since 2026-11-25 (#70): a case may list `expected.absent`, arguments the first call must leave out or send as null (dotted paths such as `filters.cause`), because an invented value there changes the answer or is refused. Other extra arguments still pass. Scores from before this change are more generous: at 21:24 on 2026-11-24 `breakdown-cause-march` passed while asking only for `over_prep` and an item that does not exist.
 - Every check is deterministic, so a given transcript always gets the same verdict and a 100% bar is never decided by a judge's error rate. An LLM judge waits for report faithfulness (#64), where claims need one.
 - Bars: tool-call correctness 90%, safety (#61) 100%. Below a bar the run exits 1; a configuration error exits 2; selecting no cases is an error.
 
