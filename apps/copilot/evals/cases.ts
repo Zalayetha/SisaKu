@@ -426,7 +426,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
   {
     id: "correct-ayam-today",
     input: {
-      message: "The ayam goreng I logged earlier is wrong, it should be 2 portions, not 4",
+      message: "The ayam goreng I logged earlier today is wrong, it should be 2 portions, not 4",
       role: "staff",
       today: "2026-06-29",
     },
