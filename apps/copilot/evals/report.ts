@@ -1,6 +1,8 @@
 import type { EvalSuiteResult } from "@anvia/core/evals";
-import type { ToolCallCase } from "./cases";
+import type { CopilotInput, ExpectedCall } from "./cases";
 import type { TurnOutput } from "./target";
+
+type SuiteResult = EvalSuiteResult<CopilotInput, TurnOutput, ExpectedCall>;
 
 export type Tally = { passed: number; total: number };
 
@@ -49,7 +51,7 @@ export function formatText(suites: readonly SuiteReport[]): string {
 }
 
 /** Why a case did not pass: the metric's comment, or why it could not be scored. */
-function failureReason(result: EvalSuiteResult<ToolCallCase, TurnOutput>["results"][number]) {
+function failureReason(result: SuiteResult["results"][number]) {
   for (const metric of result.metrics) {
     const { outcome } = metric;
     if (outcome.outcome === "invalid")
@@ -61,13 +63,13 @@ function failureReason(result: EvalSuiteResult<ToolCallCase, TurnOutput>["result
 }
 
 /** Passed and total per area, and every case that did not pass with its reason. */
-export function summarizeSuite(result: EvalSuiteResult<ToolCallCase, TurnOutput>): SuiteSummary {
+export function summarizeSuite(result: SuiteResult): SuiteSummary {
   const areas: Record<string, Tally> = {};
   const failures: CaseFailure[] = [];
   const cases: CaseRecord[] = [];
   let passed = 0;
   for (const r of result.results) {
-    const area = r.case.input.area;
+    const area = String(r.case.metadata?.area ?? "unknown");
     const tally = (areas[area] ??= { passed: 0, total: 0 });
     tally.total++;
     const record: CaseRecord = {

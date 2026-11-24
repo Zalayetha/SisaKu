@@ -12,7 +12,7 @@ import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability
 import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@sisaku/agents";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
-import type { ToolCallCase } from "./cases";
+import { item, type CopilotInput, type ExpectedCall, type ToolCallCase } from "./cases";
 import { createEvalLens } from "./lens";
 import { formatText } from "./report";
 import { prepareEvalEnvironment, runCopilotEval, type EvalEnvironment } from "./run-eval";
@@ -67,10 +67,22 @@ class ByMessageModel implements CompletionModel {
   }
 }
 
+/** A case with the defaults most tests do not care about. */
 function toolCase(
-  over: Partial<ToolCallCase> & Pick<ToolCallCase, "id" | "message" | "expected">,
+  over: Partial<CopilotInput> & {
+    id: string;
+    message: string;
+    expected: ExpectedCall;
+    area?: string;
+  },
 ): ToolCallCase {
-  return { area: "waste_total", language: "id", role: "manager", today: "2026-04-01", ...over };
+  const { id, expected, area = "waste_total", ...input } = over;
+  return {
+    id,
+    input: { role: "manager", today: "2026-04-01", ...input },
+    expected,
+    metadata: { area, language: "id" },
+  };
 }
 
 const yesterdayTotal = toolCase({
@@ -119,7 +131,6 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
 
   it("scores the first call by tool and argument subset, and reports each failure", async () => {
     const yesterday = { from: "2026-03-31", to: "2026-03-31" };
-    const rendang = env.menu.get("Rendang Sapi")!;
     const cases = [
       toolCase({
         id: "extra-arg",
@@ -128,10 +139,10 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
         expected: { tool: "query_waste", args: { filters: yesterday } },
       }),
       toolCase({
-        id: "placeholder",
+        id: "menu-item",
         area: "sales",
         message: "pesan rendang",
-        expected: { tool: "get_sales", args: { ...yesterday, item_id: "{item:Rendang Sapi}" } },
+        expected: { tool: "get_sales", args: { ...yesterday, item_id: item("Rendang Sapi") } },
       }),
       toolCase({
         id: "no-tool",
@@ -163,7 +174,10 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
         tool: "query_waste",
         input: { filters: yesterday, group_by: "item" },
       },
-      "pesan rendang": { tool: "get_sales", input: { ...yesterday, item_id: rendang } },
+      "pesan rendang": {
+        tool: "get_sales",
+        input: { ...yesterday, item_id: item("Rendang Sapi") },
+      },
       "pesan tolak": { text: "Maaf, saya hanya bisa melihat data outlet kamu." },
       "pesan salah alat": { tool: "get_sales", input: yesterday },
       "pesan salah tanggal": { tool: "get_sales", input: { from: "2026-03-30", to: "2026-03-30" } },
@@ -477,7 +491,7 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
       expect(traces).toContain("pesan menu"); // the user's message
       expect(traces).toContain("Current date: 2026-04-01"); // the instructions
       expect(traces).toContain("get_menu");
-      expect(traces).toContain(env.menu.get("Rendang Sapi")!); // the tool's result
+      expect(traces).toContain(item("Rendang Sapi")); // the tool's result
       expect(traces).toContain("Selesai."); // the reply
       expect(bodies["/api/public/otel/v1/logs"] ?? "").toContain("tool_call"); // the score
     });
@@ -533,13 +547,13 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
         input: { filters: { from: "2026-03-31", to: "2026-03-31" }, group_by: "none" },
       },
     });
-    const withOutlet = toolCase({
+    const withOutlet = {
       ...yesterdayTotal,
       expected: {
         tool: "query_waste",
         args: { filters: { outlet_id: "some-other-outlet", from: "2026-03-31" } },
       },
-    });
+    };
 
     const report = await runCopilotEval({
       env,
@@ -553,7 +567,8 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
   it("refuses a history that is not user/assistant pairs instead of dropping turns", async () => {
     const model = new ByMessageModel({ "Berapa total limbah kemarin?": { text: "Oke." } });
     const odd = toolCase({
-      ...yesterdayTotal,
+      id: "odd-history",
+      message: yesterdayTotal.input.message,
       expected: { tool: null },
       history: [{ role: "user", content: "halo" }],
     });

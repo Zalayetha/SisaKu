@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createModel } from "@sisaku/agents";
-import { loadToolCallDataset } from "./cases";
+import { toolCallCases, type ToolCallCase } from "./cases";
 import { createEvalLens } from "./lens";
 import { formatText } from "./report";
 import {
@@ -18,9 +18,7 @@ import {
 //   --case <id>           only these case ids (repeatable)
 //   --repeat <n>          run every case n times
 
-const DATASETS: Record<DatasetName, () => ReturnType<typeof loadToolCallDataset>["cases"]> = {
-  "tool-call": () => loadToolCallDataset().cases,
-};
+const DATASETS: Record<DatasetName, readonly ToolCallCase[]> = { "tool-call": toolCallCases };
 
 function fail(message: string): never {
   console.error(message);
@@ -66,7 +64,7 @@ try {
   const report = await runCopilotEval({
     env,
     model,
-    datasets: names.map((name) => ({ name, cases: DATASETS[name]() })),
+    datasets: names.map((name) => ({ name, cases: DATASETS[name] })),
     ...(values.case ? { caseIds: values.case } : {}),
     repeat,
     print: (text) => process.stdout.write(text),

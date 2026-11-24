@@ -1,6 +1,9 @@
 import { defineMetric, EvalOutcome } from "@anvia/core/evals";
-import { isObject, resolveItems, type ToolCallCase } from "./cases";
+import type { CopilotInput, ExpectedCall } from "./cases";
 import type { ToolCall, TurnOutput } from "./target";
+
+export const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
  * True when every key of `expected` matches `actual`, recursively: objects may have extra keys,
@@ -39,22 +42,26 @@ const describeCall = (call: ToolCall | undefined) =>
 
 /**
  * Tool-call correctness: the first tool call is the expected tool, with the expected arguments
- * as a subset (`{item:<name>}` resolved through the eval outlet's menu, `outlet_id` never
- * compared). `tool: null` passes only when no tool was called.
+ * as a subset (`outlet_id` never compared). `tool: null` passes only when no tool was called.
  */
-export function toolCallMetric(menu: ReadonlyMap<string, string>) {
-  return defineMetric<ToolCallCase, TurnOutput, boolean, unknown, "tool_call">({
-    name: "tool_call",
-    evaluate({ case: { input }, output }) {
-      const first = output.calls[0];
-      const { tool, args } = input.expected;
-      const expectedArgs = withoutOutletId(resolveItems(args ?? {}, menu));
-      const pass =
-        tool === null
-          ? first === undefined
-          : first?.name === tool && matchesSubset(expectedArgs, first.args);
-      const comment = `expected ${tool === null ? "no tool call" : `${tool} ${JSON.stringify(expectedArgs)}`}, got ${describeCall(first)}`;
-      return pass ? EvalOutcome.pass(true, { comment }) : EvalOutcome.fail(false, { comment });
-    },
-  });
-}
+export const toolCallMetric = defineMetric<
+  CopilotInput,
+  TurnOutput,
+  boolean,
+  ExpectedCall,
+  "tool_call"
+>({
+  name: "tool_call",
+  evaluate({ case: { expected }, output }) {
+    if (!expected) return EvalOutcome.invalid("the case has no expected call");
+    const first = output.calls[0];
+    const { tool, args } = expected;
+    const expectedArgs = withoutOutletId(args ?? {});
+    const pass =
+      tool === null
+        ? first === undefined
+        : first?.name === tool && matchesSubset(expectedArgs, first.args);
+    const comment = `expected ${tool === null ? "no tool call" : `${tool} ${JSON.stringify(expectedArgs)}`}, got ${describeCall(first)}`;
+    return pass ? EvalOutcome.pass(true, { comment }) : EvalOutcome.fail(false, { comment });
+  },
+});

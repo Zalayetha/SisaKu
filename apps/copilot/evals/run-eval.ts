@@ -2,7 +2,7 @@ import type { CompletionModel } from "@anvia/core";
 import { runEvalCli, type EvalReporter } from "@anvia/core/evals";
 import type { AgentObserver } from "@anvia/core/observability";
 import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@sisaku/agents";
-import type { ToolCallCase } from "./cases";
+import type { CopilotInput, ExpectedCall, ToolCallCase } from "./cases";
 import type { EvalEnvironment } from "./environment";
 import { toolCallMetric } from "./metrics";
 import { meetsBar, summarizeSuite, type SuiteReport } from "./report";
@@ -57,7 +57,10 @@ export type RunOptions = {
   /** Receives every case's outcome as text, for the terminal; nothing is printed without it. */
   print?: (text: string) => void;
   /** Lens, when configured: traces every case and receives every score with its trace. */
-  lens?: { observer: AgentObserver; reporters: readonly EvalReporter<ToolCallCase, TurnOutput>[] };
+  lens?: {
+    observer: AgentObserver;
+    reporters: readonly EvalReporter<CopilotInput, TurnOutput, ExpectedCall>[];
+  };
 };
 
 /** The selected cases of a dataset, each repeated; ids get `#n` when repeated. */
@@ -66,8 +69,8 @@ function selectCases(cases: readonly ToolCallCase[], options: RunOptions) {
   const chosen = options.caseIds ? cases.filter((c) => options.caseIds!.includes(c.id)) : cases;
   return chosen.flatMap((c) =>
     Array.from({ length: repeat }, (_, i) => ({
+      ...c,
       id: repeat > 1 ? `${c.id}#${i + 1}` : c.id,
-      input: c,
     })),
   );
 }
@@ -93,7 +96,7 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
         dataset: dataset.name,
         observer: options.lens?.observer,
       }),
-      metrics: [toolCallMetric(options.env.menu)],
+      metrics: [toolCallMetric],
       concurrency: options.concurrency ?? DEFAULT_CONCURRENCY,
       caseTimeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       trace: ({ output }) => output?.trace,

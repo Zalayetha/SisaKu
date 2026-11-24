@@ -2,13 +2,13 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { McpServer } from "@anvia/core/mcp";
 import type { CopilotRole } from "@sisaku/agents";
-import { createDb, menuItems, outlets, users } from "@sisaku/db";
+import { createDb, outlets, users } from "@sisaku/db";
 import { generateMockData, loadDataset } from "@sisaku/mock-data";
 import { eq } from "drizzle-orm";
 import { connectInMemoryServers } from "../src/testing/harness";
 import type { Db } from "../src/users";
+import { EVAL_OUTLET } from "./cases";
 
-export const EVAL_OUTLET = "Warung Rina";
 export const EVAL_OWNER_TELEGRAM_ID = "eval-owner";
 
 /** Everything a case runs against: a throwaway database seeded with the default mock data. */
@@ -16,8 +16,6 @@ export type EvalEnvironment = {
   db: Db;
   servers: readonly McpServer[];
   outlet: { id: string; name: string; timezone: string };
-  /** The eval outlet's menu, name → id, for `{item:<name>}` placeholders. */
-  menu: ReadonlyMap<string, string>;
   telegramIdByRole: Readonly<Record<CopilotRole, string>>;
   close(): Promise<void>;
 };
@@ -64,17 +62,12 @@ export async function prepareEvalEnvironment(url: string): Promise<EvalEnvironme
     if (!id) throw new Error(`${EVAL_OUTLET} has no ${role} with a Telegram id`);
     return id;
   };
-  const items = await db
-    .select({ id: menuItems.id, name: menuItems.name })
-    .from(menuItems)
-    .where(eq(menuItems.outletId, outlet.id));
 
   const mcp = await connectInMemoryServers(db);
   return {
     db,
     servers: mcp.servers,
     outlet,
-    menu: new Map(items.map((i) => [i.name, i.id])),
     telegramIdByRole: {
       staff: telegramId("staff"),
       manager: telegramId("manager"),

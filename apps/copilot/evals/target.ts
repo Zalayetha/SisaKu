@@ -6,7 +6,7 @@ import { ChatHistory } from "../src/history";
 import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "../src/testing/harness";
 import { APOLOGY, createTurnHandler } from "../src/turn";
 import { createUserLookup } from "../src/users";
-import type { ToolCallCase } from "./cases";
+import type { CopilotInput } from "./cases";
 import type { EvalEnvironment } from "./environment";
 
 export type ToolCall = { name: string; args: unknown };
@@ -90,7 +90,7 @@ export type TargetDeps = {
  */
 export function createCopilotTarget(deps: TargetDeps) {
   const { env } = deps;
-  return async (input: ToolCallCase, testCase: { id: string }): Promise<TurnOutput> => {
+  return async (input: CopilotInput, testCase: { id: string }): Promise<TurnOutput> => {
     const output: TurnOutput = { calls: [], reply: "", errors: [] };
     const chatId = `eval-${testCase.id}`;
     const history = new ChatHistory(20);
@@ -100,7 +100,7 @@ export function createCopilotTarget(deps: TargetDeps) {
       earlier.length % 2 !== 0 ||
       earlier.some((m, i) => m.role !== (i % 2 ? "assistant" : "user"))
     ) {
-      throw new Error(`${input.id}: history must be user/assistant pairs`);
+      throw new Error(`${testCase.id}: history must be user/assistant pairs`);
     }
     for (let i = 0; i < earlier.length; i += 2) {
       history.append(chatId, earlier[i]!.content, earlier[i + 1]!.content);

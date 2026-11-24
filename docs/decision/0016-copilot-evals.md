@@ -11,7 +11,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **What runs**
 
-- `pnpm eval` runs the Copilot evals on `@anvia/core/evals` (`runEvalCli`, custom metrics), following Carbon Scout's layout (cases, metrics, target, run). The code lives with the copilot app in `apps/copilot/evals/`, next to its datasets, because the turn handler and the local tools live there and `@sisaku/agents` cannot depend on the app. Metrics move into `@sisaku/agents` only when a pipeline eval needs them.
+- `pnpm eval` runs the Copilot evals on `@anvia/core/evals` (`runEvalCli`, custom metrics), following Carbon Scout's layout (cases, metrics, target, run). The code lives with the copilot app in `apps/copilot/evals/`, next to its cases (`cases.ts`), because the turn handler and the local tools live there and `@sisaku/agents` cannot depend on the app. Metrics move into `@sisaku/agents` only when a pipeline eval needs them.
 - Each case runs through the real turn handler: the real instructions and tool descriptions, the menu in the turn context, `propose_waste_entry` and `send_chart`, and kitchen-mcp and impact-mcp over in-memory transport. A wrapping observer records every tool call (name and arguments) and the reply. No Telegram is involved.
 - The model is the production one (`createModel()`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL_ID`).
 
@@ -22,7 +22,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **Scored by code, not a judge**
 
-- Tool-call correctness: the first tool call must be the expected tool, and `expected.args` must match its arguments as a subset (objects may have extra keys; arrays match element by element and have the same length). `{item:<name>}` is resolved through the seeded menu. `tool: null` passes only with no tool call.
+- Tool-call correctness: the first tool call must be the expected tool, and `expected.args` must match its arguments as a subset (objects may have extra keys; arrays match element by element and have the same length). `item("<name>")` in a case is the id from the seeded mock data. `tool: null` passes only with no tool call.
 - Every check is deterministic, so a given transcript always gets the same verdict and a 100% bar is never decided by a judge's error rate. An LLM judge waits for report faithfulness (#64), where claims need one.
 - Bars: tool-call correctness 90%, safety (#61) 100%. Below a bar the run exits 1; a configuration error exits 2; selecting no cases is an error.
 

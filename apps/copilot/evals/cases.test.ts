@@ -11,11 +11,10 @@ import {
 import { generateMockData } from "@sisaku/mock-data";
 import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
-import { CHART_TOOL_NAME, chartInput } from "../../src/charts/chart-tool";
-import { PROPOSE_TOOL_NAME, proposeInput } from "../../src/waste/propose-tool";
-import { isObject, loadToolCallDataset, resolveItems } from "../cases";
-
-const dataset = loadToolCallDataset();
+import { CHART_TOOL_NAME, chartInput } from "../src/charts/chart-tool";
+import { PROPOSE_TOOL_NAME, proposeInput } from "../src/waste/propose-tool";
+import { EVAL_OUTLET, toolCallCases } from "./cases";
+import { isObject } from "./metrics";
 
 const AREAS = {
   waste_total: 5,
@@ -63,37 +62,33 @@ function merge(base: Record<string, unknown>, over: Record<string, unknown>) {
   return out;
 }
 
-describe("tool-call eval dataset", () => {
+describe("tool-call eval cases", () => {
   const mock = generateMockData();
-  const outlet = mock.outlets.find((o) => o.name === dataset.outlet)!;
-  const menu = new Map(
-    mock.menuItems.filter((m) => m.outletId === outlet.id).map((m) => [m.name, m.id]),
-  );
 
   it("has 26 cases with unique ids, in the agreed mix of areas and languages", () => {
-    expect(outlet).toBeDefined();
-    expect(dataset.cases).toHaveLength(26);
-    expect(new Set(dataset.cases.map((c) => c.id)).size).toBe(26);
+    expect(mock.outlets.map((o) => o.name)).toContain(EVAL_OUTLET);
+    expect(toolCallCases).toHaveLength(26);
+    expect(new Set(toolCallCases.map((c) => c.id)).size).toBe(26);
     const areas: Record<string, number> = {};
-    for (const c of dataset.cases) areas[c.area] = (areas[c.area] ?? 0) + 1;
+    for (const c of toolCallCases) areas[c.metadata.area] = (areas[c.metadata.area] ?? 0) + 1;
     expect(areas).toEqual(AREAS);
-    expect(dataset.cases.filter((c) => c.language === "id")).toHaveLength(16);
-    for (const c of dataset.cases) {
-      expect(["staff", "manager", "owner"]).toContain(c.role);
-      expect(c.today).toBe(mock.endDate);
-      expect(c.message.trim()).not.toBe("");
+    expect(toolCallCases.filter((c) => c.metadata.language === "id")).toHaveLength(16);
+    for (const c of toolCallCases) {
+      expect(["staff", "manager", "owner"]).toContain(c.input.role);
+      expect(c.input.today).toBe(mock.endDate);
+      expect(c.input.message.trim()).not.toBe("");
     }
   });
 
   it("gives history as user/assistant pairs, as the chat history holds it", () => {
-    for (const c of dataset.cases.filter((c) => c.history)) {
-      expect(c.history!.length % 2, c.id).toBe(0);
-      c.history!.forEach((m, i) => {
+    for (const c of toolCallCases.filter((c) => c.input.history)) {
+      expect(c.input.history!.length % 2, c.id).toBe(0);
+      c.input.history!.forEach((m, i) => {
         expect(m.role, c.id).toBe(i % 2 === 0 ? "user" : "assistant");
         expect(m.content.trim(), c.id).not.toBe("");
       });
     }
-    expect(dataset.cases.some((c) => c.history)).toBe(true);
+    expect(toolCallCases.some((c) => c.input.history)).toBe(true);
   });
 
   it("expects only tools the Copilot is offered, or no tool", () => {
@@ -102,9 +97,9 @@ describe("tool-call eval dataset", () => {
       PROPOSE_TOOL_NAME,
       CHART_TOOL_NAME,
     ]);
-    for (const c of dataset.cases) {
+    for (const c of toolCallCases) {
       if (c.expected.tool === null) {
-        expect(c.area, c.id).toBe("no_tool");
+        expect(c.metadata.area, c.id).toBe("no_tool");
         expect(c.expected.args, c.id).toBeUndefined();
       } else {
         expect(offered.has(c.expected.tool), c.id).toBe(true);
@@ -112,10 +107,10 @@ describe("tool-call eval dataset", () => {
     }
   });
 
-  it.each(dataset.cases.filter((c) => c.expected.tool !== null).map((c) => [c.id, c] as const))(
+  it.each(toolCallCases.filter((c) => c.expected.tool !== null).map((c) => [c.id, c] as const))(
     "%s: expected arguments pass the tool's real input schema",
     (_id, c) => {
-      const args = resolveItems(c.expected.args ?? {}, menu) as Record<string, unknown>;
+      const args = c.expected.args ?? {};
       expect(JSON.stringify(args)).not.toContain("outlet_id");
       const tool = TOOLS[c.expected.tool!]!;
       const input = merge(tool.filler, args);
