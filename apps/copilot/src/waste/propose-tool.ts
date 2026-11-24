@@ -127,6 +127,13 @@ export function createProposeWasteTool(ctx: ProposeContext) {
       // A text message may correct the chat's open guess; a new photo always starts a new one.
       const correcting = args.corrects_open_guess === true && !ctx.photo;
       const base = ctx.turn.guess ?? (correcting ? ctx.store.openIn(ctx.chatId) : undefined);
+      // Without an open guess there is nothing to replace: a new guess would be saved next to the
+      // entry the user wants corrected (ADR 0014).
+      if (correcting && !base) {
+        return fail(
+          "There is no open waste guess to correct. If the user is correcting saved waste, find it with list_entries and use update_entry.",
+        );
+      }
       const fromPhoto = base ? base.source === "photo" : ctx.photo !== undefined;
       const confidence = fromPhoto ? (base?.confidence ?? args.confidence ?? 0) : undefined;
       // Any correction typed by the user counts as supplied by a person.

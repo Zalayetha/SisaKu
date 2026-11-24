@@ -11,6 +11,22 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-25.2
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0014)
+- Fingerprint: `c5f7ffce2b5d30b8`
+- Added, rule 8, last point: "If no open waste guess is shown, never set corrects_open_guess: a
+  message correcting something logged earlier is about saved waste (rule 9)."
+- Added, rule 9: "If list_entries finds no matching entry, say that no saved entry was found and
+  ask whether to log it now; do not call propose_waste_entry until the user says yes."
+- In code, not instructions: `propose_waste_entry` refuses `corrects_open_guess` on a text turn
+  with no open guess, and points to list_entries and update_entry.
+- Why: with no open guess, the model answered "Rendang yang saya catat tadi salah" with a new
+  waste guess, which Simpan would have saved next to the wrong entry, counting the waste twice.
+- Eval to move: tool-call correctness, `correct-rendang-today` (0/3 on 2026-11-25.1, 1/3 on
+  2026-11-24.1). `correct-open-guess` (3/3) must stay.
+
 ## 2026-11-25.1
 
 - Date: 2026-11-25

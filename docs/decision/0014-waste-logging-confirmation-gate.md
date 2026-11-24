@@ -22,7 +22,7 @@ ZALS-16 lets staff log waste in the Kitchen Copilot by sending a photo or a text
 - One guess comes from one photo or text and has up to five lines, each a menu item with a portion count or a typed weight. Photos never produce a weight. A mixed dish that is one menu item is one line; different menu items in one bin are separate lines. One Simpan saves one waste entry per line, sharing the cause and photo, in a single `log_waste` call that saves every line or none. The largest weight one entry can hold is checked when the guess is proposed, so a card does not offer an amount `log_waste` would reject.
 - The same Copilot agent reads the photo (as image input) and the text; confidence is the model's own estimate. A separate structured vision step can replace this later without changing the gate.
 - `logged_at` is the message time unless the text names another time. Items that are not on the menu are not guessed.
-- A text message replaces the chat's open guess only when the model marks its proposal as a correction (`corrects_open_guess`); otherwise it starts a new guess, so a separate report never inherits another guess's photo. A replaced card is edited to say so and its buttons stop working.
+- A text message replaces the chat's open guess only when the model marks its proposal as a correction (`corrects_open_guess`); otherwise it starts a new guess, so a separate report never inherits another guess's photo. A replaced card is edited to say so and its buttons stop working. Since 2026-11-25 (#69), a text proposal marked as a correction with no open guess is refused and points the model to `list_entries` and `update_entry`: a new guess would be saved next to the entry the user wants corrected.
 
 **Drafts and photos**
 

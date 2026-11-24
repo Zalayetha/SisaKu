@@ -1187,6 +1187,49 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       ).toEqual([]);
     });
 
+    it("refuses a correction when no guess is open, so saved waste is not logged twice", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+        { text: "Entri mana yang mau dikoreksi?" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const reply = asReply(await handle(message("nasi yang tadi salah, harusnya 2 porsi")));
+      expect(reply.text).toBe("Entri mana yang mau dikoreksi?");
+      expect(reply.actions).toBeUndefined();
+      expect(JSON.stringify(model.requests[1]!.chatHistory)).toContain(
+        "There is no open waste guess to correct",
+      );
+    });
+
+    it("refuses a correction of a guess that was already saved", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "spoilage" }),
+        { text: "ok" },
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+        { text: "Entri mana?" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const card = await handle(message("nasi 3 porsi basi"));
+      await handle(tap(button(card, "Simpan")));
+      const reply = asReply(await handle(message("eh, 2 porsi")));
+      expect(reply.text).toBe("Entri mana?");
+      expect(reply.actions).toBeUndefined();
+    });
+
+    it("starts a new guess for a photo even when the model marks it as a correction", async () => {
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 2 }],
+          cause: "spoilage",
+          confidence: 0.9,
+          corrects_open_guess: true,
+        }),
+        { text: "ok" },
+      ]);
+      const card = asReply(await handler(model, new RecordingObserver())(photoMessage(), io));
+      expect(card.text).toContain("Nasi Putih: 2 porsi");
+    });
+
     it("restores the replaced guess when its correction's card could not be delivered", async () => {
       const model = new ScriptedModel([
         propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], cause: "spoilage" }),
