@@ -481,6 +481,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         onDelivered: expect.any(Function),
       });
       expect(model.lastToolResult()).toContain('"sent":true');
+      expect(model.lastToolResult()).toContain(
+        '"summary":{"metric":"waste_kg","total":1.84,"highest":{"date":"2026-02-11","value":1}}',
+      );
     });
 
     it("fills days without waste with zero, for one item, in rupiah", async () => {
@@ -499,6 +502,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(result).toMatchObject({
         chart: { title: "Limbah Rendang Sapi per hari (Rp), 10–12 Feb 2026" },
       });
+      expect(model.lastToolResult()).toContain(
+        '"summary":{"metric":"cost_idr","total":91000,"highest":{"date":"2026-02-12","value":65000}}',
+      );
     });
 
     it("compares one item's waste with its sales on the same days", async () => {
@@ -515,13 +521,22 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(result).toMatchObject({
         chart: { title: "Rendang Sapi: limbah vs terjual (porsi), 10–12 Feb 2026" },
       });
+      expect(model.lastToolResult()).toContain(
+        '"summary":{"waste_portions":7,"sold_portions":102}',
+      );
     });
 
     it("ranks waste by cause and by item, largest first", async () => {
-      await handler(
-        chartTurn({ kind: "waste_breakdown", ...range, metric: "waste_kg", by: "cause" }),
-        new RecordingObserver(),
-      )(message("penyebab terbesar?"));
+      const byCause = chartTurn({
+        kind: "waste_breakdown",
+        ...range,
+        metric: "waste_kg",
+        by: "cause",
+      });
+      await handler(byCause, new RecordingObserver())(message("penyebab terbesar?"));
+      expect(byCause.lastToolResult()).toContain(
+        '"summary":{"metric":"waste_kg","total":1.84,"top":[{"label":"Kelebihan masak","value":1.24},{"label":"Basi","value":0.6}]}',
+      );
       expect(charts.values()).toEqual([
         { label: "Kelebihan masak", value: 1.24 },
         { label: "Basi", value: 0.6 },

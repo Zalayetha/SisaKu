@@ -11,6 +11,23 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-25.4
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0009, ADR 0015)
+- Fingerprint: `8a55f896b290b156`
+- Changed, rule 11: "Your reply still gives the key numbers from the tools" → "…from the tools,
+  including the chart summary send_chart returns".
+- Changed tool description, `get_sales`: adds "with each item's total over the range (totals)";
+  its output gains `totals`.
+- Changed tool output, `send_chart`: gains `summary` (trend: total and highest day; waste vs sales:
+  portions wasted and sold; breakdown: total and top three), and its note says to give the key
+  numbers from it.
+- Why: `get_sales` gave daily rows only, so a 7-day question got no total; a model that calls
+  send_chart first, as rule 11 says, had no numbers to give.
+- Eval to move: none scored. Replies of `sales-ayam-7-days`, `chart-trend-march` and
+  `chart-rendang-vs-sales` are read by hand. Tool-call correctness (87/87) must stay.
+
 ## 2026-11-25.3
 
 - Date: 2026-11-25

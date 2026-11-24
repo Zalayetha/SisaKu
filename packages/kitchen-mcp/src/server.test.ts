@@ -282,6 +282,7 @@ describe.skipIf(!testDbUrl)("kitchen-mcp protocol, with Postgres", () => {
   it("get_sales", async () => {
     const r = await call("get_sales", { outlet_id: A, from: "2026-03-03", to: "2026-03-03" });
     expect(r.rows).toHaveLength(2);
+    expect(r.totals).toHaveLength(2);
   });
 
   it("get_menu", async () => {

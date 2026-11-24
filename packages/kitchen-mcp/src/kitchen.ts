@@ -157,7 +157,18 @@ export async function getSales(db: Db, input: GetSalesInput): Promise<GetSalesOu
     .innerJoin(menuItems, eq(menuItems.id, sales.itemId))
     .where(and(...where))
     .orderBy(asc(sales.date), asc(menuItems.name));
-  return { outlet_id: input.outlet_id, from: input.from, to: input.to, rows };
+  const totals = new Map<string, GetSalesOutput["totals"][number]>();
+  for (const { item_id, item_name, qty_sold } of rows) {
+    const total = totals.get(item_id) ?? { item_id, item_name, qty_sold: 0 };
+    totals.set(item_id, { ...total, qty_sold: total.qty_sold + qty_sold });
+  }
+  return {
+    outlet_id: input.outlet_id,
+    from: input.from,
+    to: input.to,
+    rows,
+    totals: [...totals.values()].sort((a, b) => a.item_name.localeCompare(b.item_name)),
+  };
 }
 
 export async function getMenu(db: Db, input: GetMenuInput): Promise<GetMenuOutput> {
