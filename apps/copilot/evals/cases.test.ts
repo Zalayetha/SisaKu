@@ -14,7 +14,7 @@ import type { ZodType } from "zod";
 import { CHART_TOOL_NAME, chartInput } from "../src/charts/chart-tool";
 import { PROPOSE_TOOL_NAME, proposeInput } from "../src/waste/propose-tool";
 import { EVAL_OUTLET, toolCallCases } from "./cases";
-import { isObject } from "./metrics";
+import { hasPath, isObject } from "./metrics";
 
 const AREAS = {
   waste_total: 5,
@@ -62,6 +62,18 @@ function merge(base: Record<string, unknown>, over: Record<string, unknown>) {
   return out;
 }
 
+// One valid value per kind of optional argument.
+const SAMPLES = [OUTLET, "over_prep", "2026-04-01T05:00:00Z", 1];
+
+/** `input` with `path` set to `sample` (in every element of an array). */
+function withPath(input: unknown, path: string, sample: unknown): unknown {
+  if (Array.isArray(input)) return input.map((v) => withPath(v, path, sample));
+  if (!isObject(input)) return input;
+  const [key, ...rest] = path.split(".");
+  const value = rest.length > 0 ? withPath(input[key!], rest.join("."), sample) : sample;
+  return { ...input, [key!]: value };
+}
+
 describe("tool-call eval cases", () => {
   const mock = generateMockData();
 
@@ -101,6 +113,7 @@ describe("tool-call eval cases", () => {
       if (c.expected.tool === null) {
         expect(c.metadata.area, c.id).toBe("no_tool");
         expect(c.expected.args, c.id).toBeUndefined();
+        expect(c.expected.absent, c.id).toBeUndefined();
       } else {
         expect(offered.has(c.expected.tool), c.id).toBe(true);
       }
@@ -118,6 +131,24 @@ describe("tool-call eval cases", () => {
       expect(parsed.error?.issues ?? []).toEqual([]);
       // Zod drops unknown keys, so a misspelled key shows up as a difference here.
       expect(parsed.data).toEqual(input);
+    },
+  );
+
+  it.each(toolCallCases.filter((c) => c.expected.absent).map((c) => [c.id, c] as const))(
+    "%s: absent arguments are optional ones the tool knows",
+    (_id, c) => {
+      const tool = TOOLS[c.expected.tool!]!;
+      const inputs = [tool.filler, merge(tool.filler, c.expected.args ?? {})];
+      for (const path of c.expected.absent!) {
+        expect(hasPath(c.expected.args, path), path).toBe(false);
+        const known = inputs.some((input) =>
+          SAMPLES.some((sample) => {
+            const parsed = tool.schema.safeParse(withPath(input, path, sample));
+            return parsed.success && hasPath(parsed.data, path);
+          }),
+        );
+        expect(known, path).toBe(true);
+      }
     },
   );
 });

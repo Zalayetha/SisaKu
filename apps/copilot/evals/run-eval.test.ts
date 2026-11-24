@@ -212,6 +212,51 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     expect(text).toContain("✗ wrong-arg [sales]: expected get_sales");
   });
 
+  it("fails a first call that fills an argument the case wants left out", async () => {
+    const filters = { from: "2026-03-31", to: "2026-03-31" };
+    const rendang = item("Rendang Sapi");
+    const total = (id: string, message: string) =>
+      toolCase({
+        id,
+        message,
+        expected: { tool: "query_waste", args: { filters }, absent: ["filters.cause"] },
+      });
+    const log = (id: string, message: string) =>
+      toolCase({
+        id,
+        message,
+        expected: { tool: "propose_waste_entry", absent: ["lines.weight_kg"] },
+      });
+    const cases = [
+      total("left-out", "pesan bersih"),
+      total("harmless-extra", "pesan tambahan"),
+      total("invented-cause", "pesan sebab"),
+      log("no-weight", "pesan porsi"),
+      log("invented-weight", "pesan berat"),
+    ];
+    const propose = (line: Record<string, JsonValue>): Answer => ({
+      tool: "propose_waste_entry",
+      input: { lines: [{ item_id: rendang, portion_count: 3, ...line }] },
+    });
+    const query = (extra: Record<string, JsonValue>): Answer => ({
+      tool: "query_waste",
+      input: { filters: { ...filters, ...extra }, group_by: "none" },
+    });
+    const model = new ByMessageModel({
+      "pesan bersih": query({}),
+      "pesan tambahan": query({ item_id: rendang }),
+      "pesan sebab": query({ cause: "over_prep" }),
+      "pesan porsi": propose({}),
+      "pesan berat": propose({ weight_kg: 0.032 }),
+    });
+
+    const report = await runCopilotEval({ env, model, datasets: [{ name: "tool-call", cases }] });
+
+    const failures = report.suites[0]!.failures;
+    expect(failures.map((f) => f.id)).toEqual(["invented-cause", "invented-weight"]);
+    expect(failures[0]!.reason).toContain("without filters.cause, got query_waste");
+  });
+
   it("runs each case as its role at the eval outlet, on its own day, after its history", async () => {
     const model = new ByMessageModel({
       "eh salah, harusnya 2 porsi": { text: "Oke." },

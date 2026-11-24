@@ -37,6 +37,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 - Chat history is kept in memory, capped at about 20 messages per user, and lost on restart. It is written only once a reply has been delivered, so the model never remembers a message the user did not get (added 2026-11-24, #54). Pending confirm and approval interactions are a separate store; waste guesses are decided in ADR 0014.
 - Replies mirror the user's language, defaulting to Bahasa Indonesia.
 - A failure during a turn (LLM, MCP tool, database) produces a fixed apology in chat; the real error goes to the Lens trace and logs only. No automatic retry within a turn.
+- Every tool in a chat request is sent with `strict: false` (added 2026-11-25, #70). Anvia leaves `strict` out; on 2026-11-24 the model began filling every optional field with invented values, which is what strict tool schemas cause. The provider side was not confirmed as the cause, so requests now state it instead of relying on a default. Anvia has no setting for it, so `createModel` gives it a client built on the `openai` SDK, pinned to the version Anvia resolves.
 - Startup fails fast when the Telegram token (`getMe`), model key, `DATABASE_URL`, either MCP connection, or the Lens keys are missing or broken. At runtime Lens is best-effort and never blocks a reply.
 
 **Tracing**

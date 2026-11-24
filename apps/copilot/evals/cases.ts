@@ -18,6 +18,11 @@ export type ExpectedCall = {
   /** null: the right first move is no tool call. */
   tool: string | null;
   args?: Record<string, unknown>;
+  /**
+   * Arguments the call must leave out (or null), as dotted paths such as `filters.cause`: an
+   * invented value there changes the answer or is refused. Other extra arguments are ignored.
+   */
+  absent?: readonly string[];
 };
 
 export type ToolCallCase = EvalCase<CopilotInput, ExpectedCall> & {
@@ -45,7 +50,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
   {
     id: "waste-total-yesterday",
     input: { message: "Berapa total limbah kemarin?", role: "manager", today: TODAY },
-    expected: { tool: "query_waste", args: { filters: YESTERDAY, group_by: "none" } },
+    expected: {
+      tool: "query_waste",
+      args: { filters: YESTERDAY, group_by: "none" },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "waste_total", language: "id" },
   },
   {
@@ -54,19 +63,28 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "query_waste",
       args: { filters: { from: TODAY, to: TODAY }, group_by: "none" },
+      absent: ["filters.item_id", "filters.cause"],
     },
     metadata: { area: "waste_total", language: "en" },
   },
   {
     id: "waste-total-march",
     input: { message: "Total sisa makanan bulan Maret berapa kg?", role: "owner", today: TODAY },
-    expected: { tool: "query_waste", args: { filters: MARCH, group_by: "none" } },
+    expected: {
+      tool: "query_waste",
+      args: { filters: MARCH, group_by: "none" },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "waste_total", language: "id" },
   },
   {
     id: "waste-cost-yesterday",
     input: { message: "What was our waste cost yesterday?", role: "owner", today: TODAY },
-    expected: { tool: "query_waste", args: { filters: YESTERDAY, group_by: "none" } },
+    expected: {
+      tool: "query_waste",
+      args: { filters: YESTERDAY, group_by: "none" },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "waste_total", language: "en" },
   },
   {
@@ -75,6 +93,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "query_waste",
       args: { filters: { ...YESTERDAY, item_id: item("Rendang Sapi") } },
+      absent: ["filters.cause"],
     },
     metadata: { area: "waste_total", language: "id" },
   },
@@ -86,6 +105,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "query_waste",
       args: { filters: { to: TODAY, item_id: item("Rendang Sapi") }, group_by: "day" },
+      absent: ["filters.cause"],
     },
     metadata: { area: "why_spike", language: "en" },
   },
@@ -98,6 +118,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
         filters: { from: "2026-03-17", to: "2026-03-31", item_id: item("Ayam Goreng") },
         group_by: "day",
       },
+      absent: ["filters.cause"],
     },
     metadata: { area: "why_spike", language: "id" },
   },
@@ -114,6 +135,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
         filters: { from: "2026-03-06", to: "2026-03-20", item_id: item("Nasi Putih") },
         group_by: "day",
       },
+      absent: ["filters.cause"],
     },
     metadata: { area: "why_spike", language: "id" },
   },
@@ -127,6 +149,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "query_waste",
       args: { filters: { to: TODAY, item_id: item("Ikan Bakar") }, group_by: "day" },
+      absent: ["filters.cause"],
     },
     metadata: { area: "why_spike", language: "en" },
   },
@@ -158,7 +181,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
       role: "owner",
       today: TODAY,
     },
-    expected: { tool: "get_sales", args: { from: "2026-03-15", to: "2026-03-15" } },
+    expected: {
+      tool: "get_sales",
+      args: { from: "2026-03-15", to: "2026-03-15" },
+      absent: ["item_id"],
+    },
     metadata: { area: "sales", language: "id" },
   },
 
@@ -166,7 +193,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
   {
     id: "breakdown-cause-march",
     input: { message: "Penyebab limbah terbesar bulan Maret apa?", role: "owner", today: TODAY },
-    expected: { tool: "query_waste", args: { filters: MARCH, group_by: "cause" } },
+    expected: {
+      tool: "query_waste",
+      args: { filters: MARCH, group_by: "cause" },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "breakdown", language: "id" },
   },
   {
@@ -176,7 +207,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
       role: "manager",
       today: TODAY,
     },
-    expected: { tool: "query_waste", args: { group_by: "item" } },
+    expected: {
+      tool: "query_waste",
+      args: { group_by: "item" },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "breakdown", language: "en" },
   },
   {
@@ -186,7 +221,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
       role: "staff",
       today: TODAY,
     },
-    expected: { tool: "query_waste", args: { filters: YESTERDAY, group_by: "item" } },
+    expected: {
+      tool: "query_waste",
+      args: { filters: YESTERDAY, group_by: "item" },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "breakdown", language: "id" },
   },
 
@@ -194,7 +233,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
   {
     id: "chart-trend-march",
     input: { message: "Kirim grafik limbah per hari bulan Maret", role: "owner", today: TODAY },
-    expected: { tool: "send_chart", args: { kind: "waste_trend", ...MARCH } },
+    expected: {
+      tool: "send_chart",
+      args: { kind: "waste_trend", ...MARCH },
+      absent: ["item_id", "cause"],
+    },
     metadata: { area: "chart", language: "id" },
   },
   {
@@ -219,7 +262,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
       role: "owner",
       today: TODAY,
     },
-    expected: { tool: "compute_co2e", args: { filters: MARCH } },
+    expected: {
+      tool: "compute_co2e",
+      args: { filters: MARCH },
+      absent: ["filters.item_id", "filters.cause"],
+    },
     metadata: { area: "co2e", language: "id" },
   },
   {
@@ -232,6 +279,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "compute_co2e",
       args: { filters: { ...YESTERDAY, item_id: item("Rendang Sapi") } },
+      absent: ["filters.cause"],
     },
     metadata: { area: "co2e", language: "en" },
   },
@@ -254,6 +302,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
         lines: [{ item_id: item("Nasi Putih"), portion_count: 3 }],
         cause: "over_prep",
       },
+      absent: ["lines.weight_kg", "logged_at"],
     },
     metadata: { area: "waste_logging", language: "id" },
   },
@@ -270,6 +319,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
         lines: [{ item_id: item("Ayam Goreng"), portion_count: 4 }],
         cause: "spoilage",
       },
+      absent: ["lines.weight_kg", "logged_at"],
     },
     metadata: { area: "waste_logging", language: "en" },
   },
@@ -285,6 +335,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "list_entries",
       args: { from: TODAY, to: TODAY, item_id: item("Rendang Sapi") },
+      absent: ["cause"],
     },
     metadata: { area: "correction", language: "id" },
   },
@@ -312,6 +363,7 @@ export const toolCallCases: readonly ToolCallCase[] = [
     expected: {
       tool: "update_entry",
       args: { id: "7f3c2a10-5d4e-4b8a-9c61-2e8f0a4b9d17", patch: { portion_count: 2 } },
+      absent: ["patch.item_id", "patch.cause", "patch.logged_at", "patch.weight_kg"],
     },
     metadata: { area: "correction", language: "id" },
   },
