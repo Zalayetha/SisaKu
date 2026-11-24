@@ -155,14 +155,24 @@ export function createTurnHandler(deps: TurnDeps) {
       );
       const edits = outcome.edit ? [{ messageId: event.messageId, ...outcome.edit }] : [];
       const { history } = outcome;
-      const delivered = history
-        ? {
-            onDelivered: () =>
-              deps.history.append(event.conversation.id, history.user, history.assistant),
-          }
-        : {};
-      if (outcome.reply) return { type: "reply", text: outcome.reply, edits, ...delivered };
-      return edits.length > 0 ? { type: "edit", edits, ...delivered } : { type: "skip" };
+      const remember = history
+        ? () => deps.history.append(event.conversation.id, history.user, history.assistant)
+        : undefined;
+      if (outcome.reply) {
+        const reply = { type: "reply" as const, text: outcome.reply, edits };
+        return remember ? { ...reply, onDelivered: remember } : reply;
+      }
+      if (edits.length === 0) return { type: "skip" };
+      return {
+        type: "edit",
+        edits,
+        onDelivered: (messageId) => {
+          // A card that could not be edited was resent: later edits must go to the new one.
+          const guess = messageId ? guesses.get(parsed.guessId) : undefined;
+          if (guess) guess.cardMessageId = messageId;
+          remember?.();
+        },
+      };
     } catch (error) {
       log("Waste card action failed", error);
       return { type: "reply", text: APOLOGY };

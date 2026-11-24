@@ -15,13 +15,15 @@ version for those by hand.
 
 - Date: 2026-11-24
 - Issue: #54 (ADR 0014)
-- Fingerprint: `1013aeba6e31b070`
-- Changed, rule 9: "find the entry with list_entries…" → "if the chat shows the entry was just
-  saved, with its entry_id, call update_entry with that id. Otherwise find the entry with
+- Fingerprint: `b65119ac1e66a998`
+- Changed, rule 9: "find the entry with list_entries…" → "if the correction is about the entry
+  the chat shows was saved most recently, with its entry_id, call update_entry with that id (the
+  one named by the item, when several were saved together). Otherwise find the entry with
   list_entries (narrow it by day, item or cause), then update_entry with its id."
 - Why: Simpan, Batal and Ubah taps are now in the chat history; a saved one ends with an
-  `entry_id: <id>, …` line. A correction right after Simpan can go straight to update_entry
-  instead of a lookup that may pick the wrong entry.
+  `entry_id: <id> (<item>), …` line. A correction right after Simpan can go straight to
+  update_entry instead of a lookup that may pick the wrong entry. Older saves stay in the
+  history for a while, so only the most recent one is used this way.
 - Eval to move: tool-call correctness (new case `correct-just-saved`: history ends with a saved
   entry, the first call should be update_entry with its id).
 

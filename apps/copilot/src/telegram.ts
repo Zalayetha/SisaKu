@@ -63,7 +63,8 @@ export function createTelegramService(options: {
     for (const edit of result.edits ?? []) {
       const message = { text: edit.text, ...(edit.actions ? { actions: edit.actions } : {}) };
       try {
-        await channel.edit?.({ id: edit.messageId, address }, message);
+        if (!channel.edit) throw new Error("This channel cannot edit messages");
+        await channel.edit({ id: edit.messageId, address }, message);
       } catch (error) {
         log("Failed to edit a waste card", error);
         // Edits beside a reply touch older cards and are best-effort: they must not block it.

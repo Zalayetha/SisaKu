@@ -312,7 +312,7 @@
         { "role": "user", "content": "[Simpan]" },
         {
           "role": "assistant",
-          "content": "Tersimpan ✓\n1. Rendang Sapi: 3 porsi, 0,36 kg\nPenyebab: Kelebihan masak\nentry_id: 7f3c2a10-5d4e-4b8a-9c61-2e8f0a4b9d17"
+          "content": "Tersimpan ✓\n1. Rendang Sapi: 3 porsi, 0,36 kg\nPenyebab: Kelebihan masak\nentry_id: 7f3c2a10-5d4e-4b8a-9c61-2e8f0a4b9d17 (Rendang Sapi)"
         }
       ],
       "message": "eh salah, harusnya 2 porsi",

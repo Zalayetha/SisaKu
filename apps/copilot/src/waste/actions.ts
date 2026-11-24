@@ -105,8 +105,9 @@ export async function handleWasteAction(
       const entries = await saveGuess(guess, deps);
       deps.store.settle(guess.id, "saved");
       const card = savedCard(entries);
-      // The ids let the model correct a just-saved entry with update_entry, without a lookup.
-      const ids = `entry_id: ${entries.map((e) => e.id).join(", ")}`;
+      // The ids let the model correct a just-saved entry with update_entry, without a lookup;
+      // each is named by its item, so a correction of one line of several maps to one id.
+      const ids = `entry_id: ${entries.map((e) => `${e.id} (${e.item_name})`).join(", ")}`;
       return { edit: card, history: { user: "[Simpan]", assistant: `${card.text}\n${ids}` } };
     } catch (error) {
       // kitchen-mcp saved no line, so the guess stays open and Simpan can be tapped again.

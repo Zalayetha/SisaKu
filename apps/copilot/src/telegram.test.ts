@@ -168,6 +168,23 @@ describe("Telegram service", () => {
     expect(delivered).toEqual([undefined]);
   });
 
+  it("resends a tap's card when the channel cannot edit messages at all", async () => {
+    const channel = new FakeChannel();
+    (channel as { edit?: unknown }).edit = undefined;
+    const delivered: (string | undefined)[] = [];
+    await run(
+      () => ({
+        type: "edit",
+        edits: [{ messageId: "card-1", text: "Dibatalkan." }],
+        onDelivered: (id) => delivered.push(id),
+      }),
+      [tap],
+      channel,
+    );
+    expect(channel.texts()).toEqual(["Dibatalkan."]);
+    expect(delivered).toEqual(["sent-1"]);
+  });
+
   it("handles one conversation's turns in order, even when an earlier turn is slower", async () => {
     const { channel } = await run(
       async (event) => {

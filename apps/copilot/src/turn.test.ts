@@ -1102,28 +1102,56 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       const roles = (model: ScriptedModel, request: number) =>
         model.requests[request]!.chatHistory.map((m) => [m.role, m.content]);
 
-      it("records a saved guess with its entry ids, so a correction can use them", async () => {
+      it("records a saved guess with each entry's id and item, so a correction can use them", async () => {
         const observer = new RecordingObserver();
         const model = new ScriptedModel([
-          propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "over_prep" }),
+          propose({
+            lines: [
+              { item_id: ids.nasi, portion_count: 3 },
+              { item_id: ids.rendang, portion_count: 2 },
+            ],
+            cause: "over_prep",
+          }),
           { text: "ok" },
           { text: "Siap." },
         ]);
         const handle = handler(model, observer);
-        const card = asReply(await handle(message("nasi 3 porsi kebuang, kebanyakan masak")));
+        const card = asReply(await handle(message("nasi 3, rendang 2 porsi kebuang")));
         const saved = editOf(await handle(tap(button(card, "Simpan"))));
-        await handle(message("eh salah, harusnya 2 porsi"));
+        await handle(message("rendangnya harusnya 1 porsi"));
 
         const [run] = await db
           .select()
           .from(agentRuns)
           .where(eq(agentRuns.traceId, observer.runs[0]!.traceId));
-        const [entry] = await entriesOfRun(run!.id);
+        const entries = await entriesOfRun(run!.id);
+        const idOf = (itemId: string) => entries.find((e) => e.itemId === itemId)!.id;
+        // In card order, each id named by its item, so "rendangnya" maps to one id.
+        const idLine = `entry_id: ${idOf(ids.nasi)} (Nasi Putih), ${idOf(ids.rendang)} (Rendang Sapi)`;
         expect(roles(model, 2).slice(2)).toEqual([
           ["user", "[Simpan]"],
-          ["assistant", `${saved.text}\nentry_id: ${entry!.id}`],
-          ["user", "eh salah, harusnya 2 porsi"],
+          ["assistant", `${saved.text}\n${idLine}`],
+          ["user", "rendangnya harusnya 1 porsi"],
         ]);
+      });
+
+      it("keeps the id of a tapped card that had to be resent, for later edits", async () => {
+        const model = new ScriptedModel([
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }] }),
+          { text: "ok" },
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+          { text: "ok" },
+        ]);
+        const handle = handler(model, new RecordingObserver());
+        const lost = handler(model, new RecordingObserver(), {}, { deliver: false });
+        const card = asReply(await handle(message("nasi 3 porsi kebuang")));
+        // The cause card could not be edited, so Telegram resent it as message "resent-1".
+        const ready = await lost(tap(button(card, "Basi")));
+        if (ready.type === "skip") throw new Error("expected a card update");
+        ready.onDelivered?.("resent-1");
+
+        const corrected = asReply(await handle(message("eh, 2 porsi")));
+        expect(corrected.edits).toEqual([{ messageId: "resent-1", text: REPLACED_CARD_TEXT }]);
       });
 
       it("records Batal and Ubah with the text the user saw", async () => {
