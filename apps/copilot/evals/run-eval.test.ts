@@ -9,10 +9,20 @@ import {
 } from "@anvia/core";
 import type { EvalReportArgs, EvalReporter } from "@anvia/core/evals";
 import type { AgentObserver, AgentRunStartArgs } from "@anvia/core/observability";
-import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@sisaku/agents";
+import {
+  callMcpTool,
+  COPILOT_INSTRUCTIONS_VERSION,
+  copilotInstructionsFingerprint,
+} from "@sisaku/agents";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
-import { item, type CopilotInput, type ExpectedCall, type ToolCallCase } from "./cases";
+import {
+  item,
+  savedEntries,
+  type CopilotInput,
+  type ExpectedCall,
+  type ToolCallCase,
+} from "./cases";
 import { createEvalLens } from "./lens";
 import { formatText } from "./report";
 import { prepareEvalEnvironment, runCopilotEval, type EvalEnvironment } from "./run-eval";
@@ -295,6 +305,56 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     expect(staff.instructions).toContain("The user's role: staff.");
     expect(staff.chatHistory.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
     expect(JSON.stringify(staff.chatHistory[1])).toContain("entry_id: abc");
+  });
+
+  it("starts a case with its open guess, which a correction replaces", async () => {
+    const rendang = item("Rendang Sapi");
+    const model = new ByMessageModel({
+      "eh salah, harusnya 2 porsi": {
+        tool: "propose_waste_entry",
+        input: { lines: [{ item_id: rendang, portion_count: 2 }], corrects_open_guess: true },
+      },
+    });
+    const correction = toolCase({
+      id: "open-guess",
+      role: "staff",
+      message: "eh salah, harusnya 2 porsi",
+      openGuess: { lines: [{ item_id: rendang, portion_count: 3 }], cause: "over_prep" },
+      expected: { tool: "propose_waste_entry", args: { corrects_open_guess: true } },
+    });
+
+    const report = await runCopilotEval({
+      env,
+      model,
+      datasets: [{ name: "tool-call", cases: [correction] }],
+    });
+
+    expect(model.requests[0]!.instructions).toContain(
+      `Open waste guess: Rendang Sapi (${rendang}) 3 portions; cause over_prep`,
+    );
+    // The cause was left out of the correction, so it comes from the open guess.
+    expect(report.json.suites[0]!.cases[0]!.reply).toContain("Penyebab: Kelebihan masak");
+    expect(report.suites[0]).toMatchObject({ passed: 1, total: 1 });
+  });
+
+  it("has emission factors for the menu, and the saved entry of each correction case", async () => {
+    const call = (name: string, args: Record<string, unknown>) =>
+      callMcpTool<Record<string, unknown>>(env.servers, name, args);
+    const co2e = await call("compute_co2e", {
+      filters: { outlet_id: env.outlet.id, from: "2026-03-01", to: "2026-03-31" },
+    });
+    expect(co2e.uncovered).toEqual([]);
+    expect((co2e.totals as { total_kg_co2e: number }).total_kg_co2e).toBeGreaterThan(0);
+    for (const entry of savedEntries) {
+      const listed = await call("list_entries", {
+        outlet_id: env.outlet.id,
+        from: entry.day,
+        to: entry.day,
+      });
+      expect(listed.entries).toMatchObject([
+        { id: entry.id, portion_count: entry.portionCount, weight_kg: Number(entry.weightKg) },
+      ]);
+    }
   });
 
   it("fails a case that runs past the time limit with reason timeout, and scores the rest", async () => {

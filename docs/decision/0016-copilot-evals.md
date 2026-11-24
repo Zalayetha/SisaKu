@@ -19,6 +19,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 - The runner wipes, migrates and seeds the database at `TEST_DATABASE_URL` with `generateMockData()`, and refuses any database whose name does not end in `_test`. The eval outlet is Warung Rina. The mock data has a manager and a staff member per outlet; the runner adds an owner (`eval-owner`).
 - Each case is sent as the user with its role, with its `history` loaded as earlier chat, and the clock pinned to noon on its `today` in the outlet's time zone. A guess is never confirmed, so nothing is saved; `update_entry` is the only tool that writes, and only to this database.
+- Since 2026-11-24 (#69): the runner also loads `packages/db/seed/emission_factors.csv`, since the mock data leaves emission factors alone and every CO₂e answer was 0. Each saved-entry correction case has a real saved entry (`savedEntries` in `cases.ts`) on its own day after the mock data ends, with the case's `today` on that day, so parallel cases never read it. With `--repeat`, the repeats of such a case share one entry. A case may give `openGuess`: a waste guess whose card is already shown, put in the turn handler's guess store.
 
 **Scored by code, not a judge**
 
@@ -52,7 +53,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 ## Consequences
 
 - A prompt change can be measured before it ships: run `pnpm eval --repeat 3` before and after, and compare scores for the two instruction versions.
-- Each run costs model calls (26 turns for tool-call correctness), and model output varies, so a single run is noisy; repeats are for deliberate prompt work.
+- Each run costs model calls (29 turns for tool-call correctness since #69, 26 before), and model output varies, so a single run is noisy; repeats are for deliberate prompt work.
 - Until #62, a regression shows only when someone runs the eval.
 - The eval exercises only text messages; photo guesses and confidence calibration are not covered.
 - Turn handler tests and evals share their in-process MCP servers and fakes (`src/testing/mcp-servers.ts` and `src/testing/fakes.ts`).

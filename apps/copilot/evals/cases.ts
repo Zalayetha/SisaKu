@@ -1,5 +1,6 @@
 import type { EvalCase } from "@anvia/core/evals";
 import type { CopilotRole } from "@sisaku/agents";
+import type { WasteCause } from "@sisaku/db";
 import { generateMockData } from "@sisaku/mock-data";
 
 /** The outlet every case is asked at, in the default mock data. */
@@ -11,6 +12,8 @@ export type CopilotInput = {
   today: string;
   /** Earlier chat as user/assistant pairs, oldest first, sent before `message`. */
   history?: { role: "user" | "assistant"; content: string }[];
+  /** A waste guess whose card is already shown and not yet saved, in the case's chat. */
+  openGuess?: { lines: { item_id: string; portion_count: number }[]; cause: WasteCause };
 };
 
 /** The right first tool call. `args` is a subset: keys not listed are ignored (ADR 0015). */
@@ -44,7 +47,45 @@ const TODAY = "2026-04-01"; // the last day of the mock data
 const YESTERDAY = { from: "2026-03-31", to: "2026-03-31" };
 const MARCH = { from: "2026-03-01", to: "2026-03-31" };
 
-/** Tool-call correctness: 26 Kitchen Copilot questions with the expected first tool call. */
+/**
+ * Saved waste the correction cases are about, each on its own day after the mock data ends, so
+ * no other case reads it and a correction cannot change another case's numbers.
+ */
+export const savedEntries = [
+  {
+    id: "3b9d1f52-6c0e-4a77-8f14-5d2a9e7c6b01",
+    day: "2026-04-02",
+    itemId: item("Rendang Sapi"),
+    portionCount: 3,
+    weightKg: "0.360",
+    cause: "over_prep",
+  },
+  {
+    id: "7f3c2a10-5d4e-4b8a-9c61-2e8f0a4b9d17",
+    day: "2026-04-03",
+    itemId: item("Rendang Sapi"),
+    portionCount: 3,
+    weightKg: "0.360",
+    cause: "over_prep",
+  },
+  {
+    id: "c41e8a06-92b7-4d3f-a5c8-0e6f7b1d2934",
+    day: "2026-04-04",
+    itemId: item("Ayam Goreng"),
+    portionCount: 4,
+    weightKg: "0.600",
+    cause: "spoilage",
+  },
+] as const satisfies readonly {
+  id: string;
+  day: string;
+  itemId: string;
+  portionCount: number;
+  weightKg: string;
+  cause: WasteCause;
+}[];
+
+/** Tool-call correctness: 29 Kitchen Copilot questions with the expected first tool call. */
 export const toolCallCases: readonly ToolCallCase[] = [
   // Waste totals
   {
@@ -94,6 +135,20 @@ export const toolCallCases: readonly ToolCallCase[] = [
       tool: "query_waste",
       args: { filters: { ...YESTERDAY, item_id: item("Rendang Sapi") } },
       absent: ["filters.cause"],
+    },
+    metadata: { area: "waste_total", language: "id" },
+  },
+  {
+    id: "waste-own-outlet-by-name",
+    input: {
+      message: "Berapa total limbah Warung Rina kemarin?",
+      role: "manager",
+      today: TODAY,
+    },
+    expected: {
+      tool: "query_waste",
+      args: { filters: YESTERDAY, group_by: "none" },
+      absent: ["filters.item_id", "filters.cause"],
     },
     metadata: { area: "waste_total", language: "id" },
   },
@@ -330,11 +385,11 @@ export const toolCallCases: readonly ToolCallCase[] = [
     input: {
       message: "Rendang yang saya catat tadi salah, harusnya 2 porsi bukan 3",
       role: "staff",
-      today: TODAY,
+      today: "2026-04-02",
     },
     expected: {
       tool: "list_entries",
-      args: { from: TODAY, to: TODAY, item_id: item("Rendang Sapi") },
+      args: { from: "2026-04-02", to: "2026-04-02", item_id: item("Rendang Sapi") },
       absent: ["cause"],
     },
     metadata: { area: "correction", language: "id" },
@@ -358,12 +413,55 @@ export const toolCallCases: readonly ToolCallCase[] = [
       ],
       message: "eh salah, harusnya 2 porsi",
       role: "staff",
-      today: TODAY,
+      today: "2026-04-03",
     },
     expected: {
       tool: "update_entry",
       args: { id: "7f3c2a10-5d4e-4b8a-9c61-2e8f0a4b9d17", patch: { portion_count: 2 } },
       absent: ["patch.item_id", "patch.cause", "patch.logged_at", "patch.weight_kg"],
+    },
+    metadata: { area: "correction", language: "id" },
+  },
+  {
+    id: "correct-ayam-today",
+    input: {
+      message: "The ayam goreng I logged earlier is wrong, it should be 2 portions, not 4",
+      role: "staff",
+      today: "2026-04-04",
+    },
+    expected: {
+      tool: "list_entries",
+      args: { from: "2026-04-04", to: "2026-04-04", item_id: item("Ayam Goreng") },
+      absent: ["cause"],
+    },
+    metadata: { area: "correction", language: "en" },
+  },
+  {
+    id: "correct-open-guess",
+    input: {
+      history: [
+        { role: "user", content: "rendang 3 porsi kebuang, kebanyakan masak" },
+        {
+          role: "assistant",
+          content:
+            "Limbah yang dicatat:\n1. Rendang Sapi: 3 porsi (≈0,36 kg)\nPenyebab: Kelebihan masak",
+        },
+      ],
+      openGuess: {
+        lines: [{ item_id: item("Rendang Sapi"), portion_count: 3 }],
+        cause: "over_prep",
+      },
+      message: "eh salah, harusnya 2 porsi",
+      role: "staff",
+      today: TODAY,
+    },
+    expected: {
+      tool: "propose_waste_entry",
+      args: {
+        lines: [{ item_id: item("Rendang Sapi"), portion_count: 2 }],
+        corrects_open_guess: true,
+      },
+      absent: ["lines.weight_kg"],
     },
     metadata: { area: "correction", language: "id" },
   },
