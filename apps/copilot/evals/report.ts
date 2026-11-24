@@ -1,6 +1,6 @@
 import type { EvalSuiteResult } from "@anvia/core/evals";
 import type { CopilotInput, ExpectedCall } from "./cases";
-import type { TurnOutput } from "./target";
+import { turnOutput, type TurnOutput } from "./target";
 
 type SuiteResult = EvalSuiteResult<CopilotInput, TurnOutput, ExpectedCall>;
 
@@ -72,14 +72,15 @@ export function summarizeSuite(result: SuiteResult): SuiteSummary {
     const area = String(r.case.metadata?.area ?? "unknown");
     const tally = (areas[area] ??= { passed: 0, total: 0 });
     tally.total++;
+    const output = turnOutput(r);
     const record: CaseRecord = {
       id: r.case.id,
       area,
       outcome: r.outcome,
-      calls: r.output?.calls ?? [],
-      reply: r.output?.reply ?? "",
-      errors: r.output?.errors ?? [],
-      ...(r.output?.trace ? { trace_id: r.output.trace.traceId } : {}),
+      calls: output?.calls ?? [],
+      reply: output?.reply ?? "",
+      errors: output?.errors ?? [],
+      ...(output?.trace ? { trace_id: output.trace.traceId } : {}),
     };
     if (r.outcome === "pass") {
       tally.passed++;

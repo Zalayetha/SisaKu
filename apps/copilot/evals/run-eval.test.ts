@@ -318,6 +318,7 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     expect(report.suites[0]).toMatchObject({ passed: 0, total: 3 });
     expect(error).toMatchObject({ id: "model-error", outcome: "invalid" });
     expect(error!.reason).toContain("no scripted answer");
+    expect(error!.errors.join()).toContain("Copilot turn failed");
     expect(errorTool).toMatchObject({ id: "model-error-tool", outcome: "invalid" });
     expect(errorTool!.reason).toContain("no scripted answer");
     expect(empty).toMatchObject({ id: "empty-reply", outcome: "invalid" });
@@ -450,13 +451,14 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
       expect(report.json.suites[0]!.cases[0]!.trace_id).toBe("trace-1");
     });
 
-    it("sends full content: the instructions, message, tool arguments and tool result", async () => {
-      const bodies: Record<string, string> = {};
+    /** Runs the cases with the real Lens client against a fake Lens server; returns what it got. */
+    async function runWithFakeLens(model: CompletionModel, cases: ToolCallCase[]) {
+      const bodies: Record<string, string[]> = {};
       const server = createServer((req, res) => {
         let body = "";
         req.on("data", (chunk) => (body += chunk));
         req.on("end", () => {
-          bodies[req.url!] = (bodies[req.url!] ?? "") + body;
+          (bodies[req.url!] ??= []).push(body);
           res.writeHead(200, { "content-type": "application/json" }).end("{}");
         });
       });
@@ -467,33 +469,68 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
           ANVIA_LENS_PUBLIC_KEY: "public",
           ANVIA_LENS_SECRET_KEY: "secret",
         })!;
-        await runCopilotEval({
+        const report = await runCopilotEval({
           env,
-          model: new ByMessageModel({ "pesan menu": { tool: "get_menu", input: {} } }),
-          datasets: [
-            {
-              name: "tool-call",
-              cases: [
-                toolCase({ id: "menu", message: "pesan menu", expected: { tool: "get_menu" } }),
-              ],
-            },
-          ],
+          model,
+          datasets: [{ name: "tool-call", cases }],
           lens,
         });
         await lens.client.flush();
         await lens.client.close();
+        return {
+          report,
+          traces: bodies["/api/public/otel/v1/traces"] ?? [],
+          logs: bodies["/api/public/otel/v1/logs"] ?? [],
+        };
       } finally {
         server.close();
       }
+    }
 
-      const traces = bodies["/api/public/otel/v1/traces"] ?? "";
+    it("sends full content: the trace's messages and tool results, and the score's payload", async () => {
+      const sent = await runWithFakeLens(
+        new ByMessageModel({ "pesan menu": { tool: "get_menu", input: {} } }),
+        [toolCase({ id: "menu", message: "pesan menu", expected: { tool: "get_menu" } })],
+      );
+
+      const traces = sent.traces.join();
       expect(traces).toContain("sisaku-copilot-eval");
       expect(traces).toContain("pesan menu"); // the user's message
       expect(traces).toContain("Current date: 2026-04-01"); // the instructions
       expect(traces).toContain("get_menu");
       expect(traces).toContain(item("Rendang Sapi")); // the tool's result
       expect(traces).toContain("Selesai."); // the reply
-      expect(bodies["/api/public/otel/v1/logs"] ?? "").toContain("tool_call"); // the score
+      const logs = sent.logs.join();
+      expect(logs).toContain("tool_call"); // the score
+      expect(logs).toContain("captured"); // the score's payload: input, expected and output
+      expect(logs).toContain("pesan menu");
+    });
+
+    it("attaches each score to its run's span, for a failed turn too", async () => {
+      type Attribute = { key: string; value: { stringValue?: string } };
+      type LogRecord = { traceId?: string; spanId?: string; attributes: Attribute[] };
+      const sent = await runWithFakeLens(
+        new ByMessageModel({ "pesan menu": { tool: "get_menu", input: {} } }), // any other throws
+        [
+          toolCase({ id: "menu", message: "pesan menu", expected: { tool: "get_menu" } }),
+          toolCase({ id: "failed", message: "pesan galat", expected: { tool: null } }),
+        ],
+      );
+
+      const records: LogRecord[] = sent.logs.flatMap((body) =>
+        JSON.parse(body).resourceLogs.flatMap((r: { scopeLogs: { logRecords: LogRecord[] }[] }) =>
+          r.scopeLogs.flatMap((scope) => scope.logRecords),
+        ),
+      );
+      for (const c of sent.report.json.suites[0]!.cases) {
+        const score = records.find((r) =>
+          r.attributes.some((a) => a.key === "anvia.eval.case.id" && a.value.stringValue === c.id),
+        );
+        expect(c.trace_id, c.id).toMatch(/^[0-9a-f]{32}$/);
+        expect(score?.traceId, c.id).toBe(c.trace_id);
+        expect(score?.spanId, c.id).toMatch(/^[0-9a-f]{16}$/);
+      }
+      expect(sent.report.json.suites[0]!.cases.map((c) => c.outcome)).toEqual(["pass", "invalid"]);
     });
 
     it("is off unless all three settings are set", () => {

@@ -13,6 +13,6 @@ export function createEvalLens(env: NodeJS.ProcessEnv = process.env) {
   return {
     client,
     observer: client.observer({ captureMode: "full" }),
-    reporters: [client.evalReporter()],
+    reporters: [client.evalReporter({ includePayloads: true })],
   };
 }

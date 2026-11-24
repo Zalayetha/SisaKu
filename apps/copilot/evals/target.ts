@@ -16,8 +16,23 @@ export type TurnOutput = {
   calls: ToolCall[];
   reply: string;
   errors: string[];
-  trace?: { traceId: string };
+  trace?: { traceId: string; observationId?: string };
 };
+
+/** A turn the handler could not answer; keeps what it did, so its trace and calls are not lost. */
+export class TurnFailed extends Error {
+  constructor(
+    message: string,
+    readonly output: TurnOutput,
+  ) {
+    super(message);
+  }
+}
+
+/** What a case's turn did, whether it succeeded or failed; undefined if it never finished. */
+export const turnOutput = (result: { output?: TurnOutput | undefined; targetError?: unknown }) =>
+  result.output ??
+  (result.targetError instanceof TurnFailed ? result.targetError.output : undefined);
 
 function parseToolArgs(args: string): unknown {
   try {
@@ -50,7 +65,11 @@ function recordingObserver(
       } catch (error) {
         output.errors.push(`Lens observer failed: ${String(error)}`);
       }
-      if (run?.trace?.traceId) output.trace = { traceId: run.trace.traceId };
+      if (run?.trace?.traceId) {
+        const { traceId, observationId } = run.trace;
+        // Lens attaches a score to its run only when it gets both ids.
+        output.trace = { traceId, ...(observationId ? { observationId } : {}) };
+      }
       const observer: AgentRunObserver = {
         ...(run?.trace ? { trace: run.trace } : {}),
         startGeneration: (generation) => run?.startGeneration?.(generation),
@@ -146,7 +165,7 @@ export function createCopilotTarget(deps: TargetDeps) {
     // The handler answers a failed or empty turn with the apology. Scoring it would pass a
     // `tool: null` case because the model was down, so the case becomes invalid instead.
     if (failure || output.reply === APOLOGY) {
-      throw new Error(failure ?? "Copilot turn failed: no reply from the model");
+      throw new TurnFailed(failure ?? "Copilot turn failed: no reply from the model", output);
     }
     return output;
   };

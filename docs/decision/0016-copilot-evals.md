@@ -37,7 +37,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 **Lens, when configured**
 
-- With all three `ANVIA_LENS_*` settings, each case is traced to Lens under the service name `sisaku-copilot-eval`, never `sisaku-copilot`, with an `eval` tag and `eval_case`, `eval_dataset`, `instructions_version` and `model` metadata, and its score is attached to its trace through `lens.evalReporter()`. Eval traces use full capture: they hold only mock data and scripted messages, and a trace without content cannot explain a failure. Production stays in safe capture (ADR 0012).
+- With all three `ANVIA_LENS_*` settings, each case is traced to Lens under the service name `sisaku-copilot-eval`, never `sisaku-copilot`, with an `eval` tag and `eval_case`, `eval_dataset`, `instructions_version` and `model` metadata, and its score is attached to its trace through `lens.evalReporter()`. Eval traces use full capture, and each score carries its payload (`includePayloads`: the input, expected call and output): they hold only mock data and scripted messages, and a trace without content cannot explain a failure. Production stays in safe capture (ADR 0012).
 - Without Lens the eval runs the same. A failing Lens observer is dropped for that case and noted in its errors, and the run warns when cases went untraced or scores did not reach Lens; scores never depend on Lens.
 
 **Running it locally**

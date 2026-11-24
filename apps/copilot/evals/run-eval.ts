@@ -6,7 +6,7 @@ import type { CopilotInput, ExpectedCall, ToolCallCase } from "./cases";
 import type { EvalEnvironment } from "./environment";
 import { toolCallMetric } from "./metrics";
 import { meetsBar, summarizeSuite, type SuiteReport } from "./report";
-import { createCopilotTarget, type TurnOutput } from "./target";
+import { createCopilotTarget, turnOutput, type TurnOutput } from "./target";
 
 export { prepareEvalEnvironment, type EvalEnvironment } from "./environment";
 
@@ -99,7 +99,7 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
       metrics: [toolCallMetric],
       concurrency: options.concurrency ?? DEFAULT_CONCURRENCY,
       caseTimeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      trace: ({ output }) => output?.trace,
+      trace: (result) => turnOutput(result)?.trace,
       reporters: options.lens?.reporters ?? [],
       reporterErrorPolicy: "collect",
       format: options.print ? "pretty" : "quiet",
