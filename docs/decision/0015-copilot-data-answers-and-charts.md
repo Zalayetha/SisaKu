@@ -42,10 +42,10 @@ ZALS-17 asks the Kitchen Copilot to answer data questions, such as "why did rend
 
 **The eval dataset**
 
-- `apps/copilot/evals/tool-call/questions.json` holds 25 cases, about 60% in Bahasa Indonesia. Each case has `id`, `area`, `message`, `language`, `role`, `today` (the last day of the default mock data, 2026-04-01) and `expected: { tool, args }`. Since 2026-11-24 (#54) it holds 26 cases, and a case may give `history`: earlier chat as user/assistant pairs, which an eval runner sends before `message`.
+- `apps/copilot/evals/tool-call/questions.json` holds 25 cases, about 60% in Bahasa Indonesia. Each case has `id`, `area`, `message`, `language`, `role`, `today` (the last day of the default mock data, 2026-04-01) and `expected: { tool, args }`. Since 2026-11-24 (#54) it holds 26 cases, and a case may give `history`: earlier chat as user/assistant pairs, which an eval runner sends before `message`. Later on 2026-11-24 (#60) the cases moved unchanged from JSON to TypeScript, `toolCallCases` in `apps/copilot/evals/cases.ts`, as Anvia `EvalCase`s, with `area` and `language` in `metadata`; items are written `item("<menu name>")` instead of `{item:<menu name>}`.
 - The cases are split by area: waste totals 5, "why" spikes 4, sales 3, breakdowns 3, chart requests 2, CO₂e 2, prep log 1, text waste logging 2, correction 1, no tool 2.
 - `args` is a subset match. `outlet_id` is never listed. Items are written as `{item:<menu name>}` and resolved through `generateMockData`, so a generator change does not break the dataset (ADR 0006). `tool: null` means no tool call is right.
-- The dataset lives with the copilot app, not in `@sisaku/agents`, because `send_chart` and `propose_waste_entry` are app tools. A test validates every case against the real tool input schemas. Running the model over the dataset and the 90% bar in CI are later work.
+- The dataset lives with the copilot app, not in `@sisaku/agents`, because `send_chart` and `propose_waste_entry` are app tools. A test validates every case against the real tool input schemas. Running the model over the dataset and the 90% bar in CI are later work. Since 2026-11-24 (#60), `pnpm eval` runs the dataset against the model and checks the 90% bar; see ADR 0016.
 
 ## Consequences
 
