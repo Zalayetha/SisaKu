@@ -267,6 +267,50 @@ describe.skipIf(!testDbUrl)("Copilot eval run", () => {
     expect(failures[0]!.reason).toContain("without filters.cause, got query_waste");
   });
 
+  it("reports replies in the question's language, outside the bar", async () => {
+    const english = (id: string, message: string): ToolCallCase => ({
+      ...toolCase({ id, message, expected: { tool: null } }),
+      metadata: { area: "waste_total", language: "en" },
+    });
+    const cases = [
+      english("answered-en", "pesan inggris"),
+      english("answered-id", "pesan terjemah"),
+      english("unclear", "pesan angka"),
+      toolCase({ id: "indonesian", message: "pesan biasa", expected: { tool: null } }),
+      toolCase({
+        id: "card",
+        message: "pesan kartu",
+        expected: { tool: "propose_waste_entry" },
+      }),
+    ];
+    const model = new ByMessageModel({
+      "pesan inggris": { text: "Yesterday's waste was **2.06 kg** from 4 entries." },
+      "pesan terjemah": { text: "Kemarin tercatat **2,06 kg** dari 4 entri." },
+      "pesan angka": { text: "2,06 kg" },
+      "pesan biasa": { text: "Limbah kemarin 2,06 kg." },
+      "pesan kartu": {
+        tool: "propose_waste_entry",
+        input: { lines: [{ item_id: item("Rendang Sapi"), portion_count: 1 }] },
+      },
+    });
+
+    const report = await runCopilotEval({ env, model, datasets: [{ name: "tool-call", cases }] });
+
+    expect(report.suites[0]!.languages).toEqual({
+      en: { passed: 1, total: 2 },
+      id: { passed: 1, total: 1 },
+    });
+    expect(report.json.suites[0]!.cases.map((c) => c.language)).toEqual([
+      "en",
+      "id",
+      undefined,
+      "id",
+      undefined,
+    ]);
+    expect(report.exitCode).toBe(0);
+    expect(formatText(report.suites)).toMatch(/reply in en\s+1\/2\s+50% \(not part of the bar\)/);
+  });
+
   it("runs each case as its role at the eval outlet, on its own day, after its history", async () => {
     const model = new ByMessageModel({
       "eh salah, harusnya 2 porsi": { text: "Oke." },
