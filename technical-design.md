@@ -141,7 +141,7 @@ When something fails, the system falls back to the plain forecast and tells the 
 | No waste logged for a day | Pipeline still runs; the morning brief asks the manager to log yesterday's waste |
 | Vision model unsure about a photo | Confidence below 0.6 always asks the user to confirm or type the item and portion count or weight |
 | A pipeline step fails | Only that step reruns; earlier outputs are kept. Without a fallback the run stops as failed until the step is retried |
-| The worker is killed during a step | Another worker, or the same one restarted, runs that step again within a minute. After 4 kills the step uses its fallback or fails |
+| The worker is killed during a step | Another worker, or the same one restarted, runs that step again within a minute. A kill uses up one of the step's 4 attempts; after the last one it uses its fallback or fails |
 | Analyze step loops | Hard limit of 5 tool calls per item |
 
 **Guardrails**

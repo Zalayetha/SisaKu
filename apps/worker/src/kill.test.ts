@@ -1,18 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import {
-  agentRuns,
-  pipelineJobResults,
-  pipelineJobs,
-  PIPELINE_STEPS,
-  type PipelineStep,
-} from "@sisaku/db";
+import { PIPELINE_STEPS } from "@sisaku/db";
 import { Queue } from "bullmq";
-import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import { createPipelineRuns, PIPELINE_QUEUE, queueOptions } from "./index";
 import { testRedis, testRedisUrl } from "./testing/redis";
+import {
+  deleteRuns,
+  expectStatus as expectRunStatus,
+  readRun as readRunFrom,
+} from "./testing/runs";
 
 // A worker process killed with SIGKILL in the middle of a step, as by a crash or a power cut.
 
@@ -37,9 +35,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("a killed worker", { timeout: 90_00
   afterEach(async () => {
     await Promise.all(children.splice(0).map(kill));
     await redis.clear();
-    await db.delete(pipelineJobResults);
-    await db.delete(pipelineJobs);
-    await db.delete(agentRuns);
+    await deleteRuns(db);
     lines = [];
   });
   afterAll(async () => {
@@ -89,18 +85,9 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("a killed worker", { timeout: 90_00
     await kill(worker);
   }
 
-  async function readRun(runId: string) {
-    const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
-    const jobs = await db.select().from(pipelineJobs).where(eq(pipelineJobs.runId, runId));
-    const job = (step: PipelineStep) => jobs.find((j) => j.step === step)!;
-    return { run: run!, job, statuses: PIPELINE_STEPS.map((step) => job(step).status) };
-  }
-
-  async function expectStatus(runId: string, status: "succeeded" | "failed") {
-    await expect
-      .poll(async () => (await readRun(runId)).run.status, { timeout: 20_000 })
-      .toBe(status);
-  }
+  const readRun = (runId: string) => readRunFrom(db, runId);
+  const expectStatus = (runId: string, status: "succeeded" | "failed") =>
+    expectRunStatus(db, runId, status, 20_000);
 
   const start = () => runs.startManual({ outlet: ids.outletA, date: "2026-03-01" });
 
@@ -137,11 +124,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("a killed worker", { timeout: 90_00
     expect(count("start forecast")).toBe(4);
     const { run, job, statuses } = await readRun(runId);
     expect(statuses).toEqual(["succeeded", "succeeded", "failed", "pending", "pending"]);
-    const message = "Its worker died 4 times while running it";
+    const message = "Interrupted on attempt 4 of 4";
     expect(run.error).toBe(`forecast: ${message}`);
     expect(job("forecast")).toMatchObject({ attempts: 4, error: message });
 
-    // An operator's retry is a new chance.
+    // An operator's retry runs it again.
     const failed = await queue.getJob(`${runId}-forecast`);
     await failed!.retry("failed");
     await expectStatus(runId, "succeeded");
@@ -162,7 +149,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("a killed worker", { timeout: 90_00
     expect(statuses).toEqual(["succeeded", "succeeded", "degraded", "succeeded", "succeeded"]);
     expect(job("forecast")).toMatchObject({
       attempts: 4,
-      error: "Its worker died 4 times while running it",
+      error: "Interrupted on attempt 4 of 4",
     });
   });
 
@@ -175,7 +162,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("a killed worker", { timeout: 90_00
     await expectStatus(runId, "failed");
     expect(count("fallback forecast")).toBe(4);
     expect((await readRun(runId)).job("forecast").error).toBe(
-      "Its worker died 4 times while running it; its fallback failed: its worker died 4 times",
+      "Interrupted on attempt 4 of 4; its fallback failed: interrupted too often",
     );
   });
 });

@@ -8,8 +8,7 @@ import {
   type PipelineStep,
 } from "@sisaku/db";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
-import { and, eq } from "drizzle-orm";
-import { recordAttemptError, recordFailure } from "./failure";
+import { eq } from "drizzle-orm";
 import {
   PIPELINE_QUEUE,
   pipelineJobData,
@@ -18,6 +17,14 @@ import {
   type PipelineJobData,
   type PipelineRedis,
 } from "./queue";
+import {
+  recordAttemptError,
+  recordFailure,
+  saveStep,
+  startStep,
+  type Attempt,
+  type Produced,
+} from "./records";
 import type { Db, Tx } from "./runs";
 import {
   DEFAULT_STEPS,
@@ -37,20 +44,21 @@ export type PipelineWorkerDeps = {
   log?: (message: string, error?: unknown) => void;
 };
 
-/** What an attempt made: its output as stored, and the writes of the step's own rows. */
-type Produced = { output: unknown; writes: ((tx: Tx) => Promise<void>)[] };
-
 const DEFAULT_STOP_WAIT_MS = 30_000;
 const STALLED_AFTER_MS = 30_000;
-const LAST_STEP = PIPELINE_STEPS.at(-1);
+/** Kills of a job after which not even its fallback is started: it may be what kills the worker. */
+const MAX_KILLS = 2 * STEP_ATTEMPTS;
 
 function messageOf(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Whether BullMQ will not try the job again after this error. */
-function isLastAttempt(job: Job, error: unknown) {
-  return error instanceof UnrecoverableError || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+/** The error BullMQ does not retry after. */
+function unrecoverable(error: unknown) {
+  return Object.assign(new UnrecoverableError(messageOf(error)), {
+    cause: error,
+    ...(error instanceof Error && { stack: error.stack }),
+  });
 }
 
 /**
@@ -134,72 +142,8 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     return stored;
   }
 
-  /**
-   * Starts an attempt, or gives nothing when the step already has its result. A failed step starts
-   * again when its job is retried, and its run is in progress again. `kills` is how often a worker
-   * died while it ran the job; after too many of them the step is not started.
-   */
-  async function startStep({ runId, step }: PipelineJobData, kills: number) {
-    return db.transaction(async (tx) => {
-      const [job] = await tx
-        .select({
-          id: pipelineJobs.id,
-          status: pipelineJobs.status,
-          attempts: pipelineJobs.attempts,
-        })
-        .from(pipelineJobs)
-        .where(and(eq(pipelineJobs.runId, runId), eq(pipelineJobs.step, step)))
-        .for("update");
-      if (!job) throw new PermanentError(`Pipeline run ${runId} has no job for ${step}`);
-      if (job.status === "succeeded" || job.status === "degraded") return;
-      // Still running means interrupted. Kills before a retry by an operator do not count again.
-      if (job.status === "running" && kills >= STEP_ATTEMPTS) {
-        return { id: job.id, attempt: job.attempts, killed: true };
-      }
-      const attempt = job.attempts + 1;
-      await tx
-        .update(pipelineJobs)
-        .set({ status: "running", attempts: attempt, startedAt: new Date(), finishedAt: null })
-        .where(eq(pipelineJobs.id, job.id));
-      await tx
-        .update(agentRuns)
-        .set({ status: "running", error: null, finishedAt: null })
-        .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "failed")));
-      return { id: job.id, attempt, killed: false };
-    });
-  }
-
-  /** Saves the step's result and status together. */
-  async function saveStep(
-    { runId, step }: PipelineJobData,
-    jobId: string,
-    { output, writes }: Produced,
-    result: { status: "succeeded" } | { status: "degraded"; error: string },
-  ) {
-    await db.transaction(async (tx) => {
-      const finishedAt = new Date();
-      // A worker thought dead may finish late. What was recorded first stands: another worker's
-      // result, or the step's failure.
-      const [current] = await tx
-        .select({ status: pipelineJobs.status })
-        .from(pipelineJobs)
-        .where(eq(pipelineJobs.id, jobId))
-        .for("update");
-      if (current?.status !== "running") return;
-      for (const write of writes) await write(tx);
-      await tx.insert(pipelineJobResults).values({ jobId, output });
-      await tx
-        .update(pipelineJobs)
-        .set({ ...result, finishedAt })
-        .where(eq(pipelineJobs.id, jobId));
-      if (step === LAST_STEP) {
-        await tx
-          .update(agentRuns)
-          .set({ status: "succeeded", error: null, finishedAt })
-          .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running")));
-      }
-    });
-  }
+  /** The attempt a BullMQ job is on, for the `failed` event. */
+  const attempts = new WeakMap<Job, Attempt>();
 
   /** One attempt of one step: the work first, then the save. */
   async function runStep(job: Job<PipelineJobData>): Promise<void> {
@@ -207,13 +151,15 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     if (!valid.success) throw new PermanentError(`Not a pipeline job: ${valid.error.message}`);
     const { runId, step } = valid.data;
     const { traceId, ...run } = await loadRun(runId);
-    const started = await startStep(valid.data, job.stalledCounter);
+    const started = await startStep(db, valid.data);
     if (!started) return;
+    const { attempt, interrupted } = started;
+    attempts.set(job, attempt);
 
     const definition = steps[step];
-    const outputs = await loadOutputs(runId, step);
-    const produce = async (work: (context: StepContext) => Promise<unknown>): Promise<Produced> => {
-      const writes: Produced["writes"] = [];
+    async function produce(work: (context: StepContext) => Promise<unknown>): Promise<Produced> {
+      const outputs = await loadOutputs(runId, step);
+      const writes: ((tx: Tx) => Promise<void>)[] = [];
       const raw = await withinTimeLimit(
         step,
         definition.timeLimitMs ?? DEFAULT_TIME_LIMIT_MS,
@@ -228,44 +174,61 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
           }),
       );
       return { output: toStored(step, raw), writes };
-    };
+    }
 
-    try {
-      if (started.killed) {
-        throw new PermanentError(`Its worker died ${STEP_ATTEMPTS} times while running it`);
-      }
-      const produced = await produce((context) => definition.run(context));
-      await saveStep(valid.data, started.id, produced, { status: "succeeded" });
-    } catch (error) {
-      const message = messageOf(error);
-      const last = isLastAttempt(job, error);
-      await recordAttemptError(db, valid.data, { attempt: started.attempt, message, last }).catch(
-        (failure: unknown) => log(`Could not record an error of ${step} in run ${runId}`, failure),
-      );
-      const { fallback } = definition;
-      if (!fallback || !last) throw error;
-      log(`Step ${step} of run ${runId} uses its fallback`, error);
+    let lastError: unknown = interrupted;
+    if (!interrupted) {
       try {
-        // The fallback may be what kills the worker, so it is not started forever either.
-        if (job.stalledCounter >= 2 * STEP_ATTEMPTS) {
-          throw new Error(`its worker died ${STEP_ATTEMPTS} times`);
-        }
-        const produced = await produce((context) => fallback(context, error));
-        await saveStep(valid.data, started.id, produced, { status: "degraded", error: message });
-      } catch (fallbackError) {
-        log(`The fallback of ${step} in run ${runId} failed`, fallbackError);
-        throw new PermanentError(`${message}; its fallback failed: ${messageOf(fallbackError)}`);
+        const produced = await produce((context) => definition.run(context));
+        await saveStep(db, attempt, produced, { status: "succeeded" });
+        return;
+      } catch (error) {
+        // BullMQ counts failures only, the record counts kills too.
+        const last =
+          error instanceof PermanentError ||
+          attempt.number >= STEP_ATTEMPTS ||
+          job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+        const current = await recordAttemptError(db, attempt, {
+          message: messageOf(error),
+          last,
+        }).catch((failure: unknown) => {
+          log(`Could not record an error of ${step} in run ${runId}`, failure);
+          return true;
+        });
+        if (!last || !current) throw error;
+        lastError = error;
       }
+    }
+
+    const { fallback } = definition;
+    if (!fallback) throw unrecoverable(lastError);
+    log(`Step ${step} of run ${runId} uses its fallback`, lastError);
+    const message = messageOf(lastError);
+    try {
+      if (interrupted && job.stalledCounter >= MAX_KILLS) throw new Error("interrupted too often");
+      const produced = await produce((context) => fallback(context, lastError));
+      await saveStep(db, attempt, produced, { status: "degraded", error: message });
+    } catch (error) {
+      log(`The fallback of ${step} in run ${runId} failed`, error);
+      throw new PermanentError(`${message}; its fallback failed: ${messageOf(error)}`);
     }
   }
 
-  const worker = new Worker<PipelineJobData, void, PipelineStep>(PIPELINE_QUEUE, runStep, {
+  async function processJob(job: Job<PipelineJobData>) {
+    try {
+      await runStep(job);
+    } catch (error) {
+      throw error instanceof PermanentError ? unrecoverable(error) : error;
+    }
+  }
+
+  const worker = new Worker<PipelineJobData, void, PipelineStep>(PIPELINE_QUEUE, processJob, {
     ...queueOptions(deps.redis),
     concurrency: 2,
     lockDuration: deps.stalledAfterMs ?? STALLED_AFTER_MS,
     stalledInterval: deps.stalledAfterMs ?? STALLED_AFTER_MS,
-    // BullMQ would fail the job without calling `runStep`, so `runStep` counts the kills itself:
-    // only it can use the step's fallback.
+    // BullMQ would fail the job without calling our code, which could not use the step's fallback.
+    // The step's record counts the kills instead.
     maxStalledCount: Number.MAX_SAFE_INTEGER,
   });
   worker.on("error", (error) => log("Pipeline worker error", error));
@@ -277,7 +240,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     // permanent error ends the job early.
     if (!job?.finishedOn || !pipelineJobData.safeParse(job.data).success) return;
     const { runId, step } = job.data;
-    const done = recordFailure(db, job.data, error.message)
+    const done = recordFailure(db, job.data, error.message, attempts.get(job))
       .catch((failure: unknown) =>
         log(`Could not record the failure of ${step} in run ${runId}`, failure),
       )

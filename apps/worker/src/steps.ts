@@ -1,13 +1,12 @@
 import type { AgentTraceOptions } from "@anvia/core/observability";
 import type { McpServer } from "@anvia/core/mcp";
 import type { PipelineStep } from "@sisaku/db";
-import { UnrecoverableError } from "bullmq";
 import * as z from "zod";
 import { ingestStep } from "./ingest";
 import type { Tx } from "./runs";
 
 /** Thrown by a step when trying again cannot help, so it gets no other attempt. */
-export class PermanentError extends UnrecoverableError {}
+export class PermanentError extends Error {}
 
 /** The pipeline run a step works for. */
 export type PipelineRun = {

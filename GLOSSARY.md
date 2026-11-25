@@ -28,6 +28,14 @@ _Avoid_: Job, batch, execution
 One of the five parts of a pipeline run, in order: Ingest, Analyze, Forecast, Recommend, Report. Each can be retried alone.
 _Avoid_: Stage, task, phase
 
+**Attempt**:
+One start of a step. A step gets four, whether they fail or their worker is killed, unless an error makes trying again pointless.
+_Avoid_: Try, retry
+
+**Fallback**:
+What a step can produce without its usual means, such as the plain baseline forecast, when its attempts have run out.
+_Avoid_: Default, backup
+
 **Business date**:
 The outlet-local day a pipeline run covers. It is fixed when the run is created, and the run forecasts the day after it.
 _Avoid_: Run date, today
@@ -37,7 +45,7 @@ Something missing from a business date's data, found by Ingest: no sales, no pre
 _Avoid_: Error, anomaly
 
 **Degraded**:
-Said of a step whose attempts ran out and that used its fallback instead, such as the plain baseline forecast. The pipeline run still succeeds.
+Said of a step whose attempts ran out and that used its fallback instead. The pipeline run still succeeds.
 _Avoid_: Partial, skipped
 
 ## Waste

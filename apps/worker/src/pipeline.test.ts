@@ -1,13 +1,6 @@
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
-import {
-  agentRuns,
-  createDb,
-  outlets,
-  pipelineJobResults,
-  pipelineJobs,
-  PIPELINE_STEPS,
-} from "@sisaku/db";
+import { agentRuns, createDb, outlets, pipelineJobs } from "@sisaku/db";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
@@ -21,6 +14,11 @@ import {
   type StepDefinition,
 } from "./index";
 import { testRedis, testRedisUrl } from "./testing/redis";
+import {
+  deleteRuns,
+  expectStatus as expectRunStatus,
+  readRun as readRunFrom,
+} from "./testing/runs";
 
 const DATE = "2026-03-01";
 
@@ -42,9 +40,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
   afterEach(async () => {
     await Promise.all(workers.splice(0).map((w) => w.stop()));
     await redis.clear();
-    await db.delete(pipelineJobResults);
-    await db.delete(pipelineJobs);
-    await db.delete(agentRuns);
+    await deleteRuns(db);
   });
 
   afterAll(async () => {
@@ -96,27 +92,9 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     return { step, started };
   }
 
-  async function readRun(runId: string) {
-    const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
-    const rows = await db
-      .select()
-      .from(pipelineJobs)
-      .leftJoin(pipelineJobResults, eq(pipelineJobResults.jobId, pipelineJobs.id))
-      .where(eq(pipelineJobs.runId, runId));
-    const jobs = PIPELINE_STEPS.flatMap((step) =>
-      rows
-        .filter((r) => r.pipeline_jobs.step === step)
-        .map((r) => ({ ...r.pipeline_jobs, output: r.pipeline_job_results?.output })),
-    );
-    return { run: run!, jobs };
-  }
-
-  /** Waits until the run has the status. */
-  async function expectStatus(runId: string, status: "succeeded" | "failed") {
-    await expect
-      .poll(async () => (await readRun(runId)).run.status, { timeout: 10_000 })
-      .toBe(status);
-  }
+  const readRun = (runId: string) => readRunFrom(db, runId);
+  const expectStatus = (runId: string, status: "succeeded" | "failed") =>
+    expectRunStatus(db, runId, status);
 
   it("takes a manual run through all five steps", async () => {
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });

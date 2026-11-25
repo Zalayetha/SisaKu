@@ -9,7 +9,7 @@ import {
 } from "@sisaku/db";
 import { and, eq, sql } from "drizzle-orm";
 import * as z from "zod";
-import { recordFailure } from "./failure";
+import { recordFailure } from "./records";
 import { createPipelineQueue, type PipelineRedis } from "./queue";
 
 export type Db = ReturnType<typeof createDb>["db"];
