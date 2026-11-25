@@ -25,10 +25,21 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 
 **Steps**
 
-- A step is a name, an output schema and a run function, with an optional fallback and time limit. The run function gets the run, the validated outputs of earlier steps, the MCP servers, the trace options and an abort signal. Queue code does not change when a stub is replaced.
-- A step that uses its fallback is degraded and the run still succeeds. Without a fallback the run stops as failed. (The retries and the fallback are built in #79.)
+- A step is a name, an output schema and a run function, with an optional fallback and time limit. The run function gets the run, the validated outputs of earlier steps, the MCP servers, the trace options, an abort signal, and `onSave` for its own rows. Queue code does not change when a stub is replaced.
+- A step saves its own rows through `onSave`, in the transaction that saves its result and status, so they are saved together or not at all. It deletes the run's earlier rows first.
 - Ingest (#78) reads the menu, sales, prep log and waste of the business date through kitchen-mcp, without an LLM, and saves totals and gaps, not the rows: later steps read the details through the MCP tools. Gaps (`no_sales`, `no_prep_log`, `no_waste_logged`, `sold_not_prepped` per item) never fail the step; a failed read does. A record of zero portions is not a missing record, and a missing prep log is reported once instead of for every item sold.
 - The Report step writes the brief and never sends it. Sending is a separate job (#39).
+
+**Retries (#79)**
+
+- A step gets 4 attempts, with 30, 60 and 120 seconds after a failed one, and 5 minutes per attempt unless it sets its own limit. At the limit its abort signal fires and the attempt fails, whether or not the step listens; what it returns later is dropped. The limit covers the step's work, not the save after it.
+- Between attempts the step is `pending` in Postgres, with the attempts made and the last error on it. The error stays when a later attempt succeeds, to show why it took more than one. `failed` is recorded only when BullMQ will not try again.
+- A `PermanentError` ends the attempts at once: a run or job record that does not exist, job data that is not a run and a step, or an earlier output that is missing or no longer matches its schema. Steps may throw it too. Output that breaks the step's own schema is an ordinary failure, because an LLM may do better next time.
+- When its attempts have run out, by failing, by kills or by a permanent error, a step with a fallback saves the fallback's output and is degraded, and the run still succeeds. The fallback has the same time limit and schema. Without one, or when it fails too, the job and the run are failed and the later steps wait.
+- Retrying a failed job by hand puts its run back in progress, and the run continues from that step. Its attempts count anew, but BullMQ makes only one more on its own after four failed ones.
+- A killed worker's step is taken over within a minute. A kill uses up an attempt, as a failure does. BullMQ would by default fail a job at its second kill without calling our code, which could not then use the fallback, so its limit is lifted and the step's record counts every start. A step interrupted on its 4th attempt is not started again: only its fallback is left. A job killed 8 times does not get that either, in case the fallback is what kills the worker.
+- A step that reached its fallback earlier, by a permanent error or after a retry by hand, runs again if its worker is killed during the fallback, within its 4 attempts. The record does not say that its attempts had run out. This is harmless, because a step saves only through `onSave`, with its result.
+- The record names its current attempt by its start time, and only that attempt may save, use the fallback, or record a failure. A worker thought dead that finishes late changes nothing.
 
 **Boundaries**
 
@@ -41,7 +52,9 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 ## Consequences
 
 - Redis can be emptied without losing finished work: the run's state is in Postgres, and repeating `pnpm pipeline:run` queues the rest.
-- A worker thought dead may still finish its step. What was recorded first stands, a result or a failure, and the late one is dropped.
+- A worker thought dead may still finish its step. Its result is dropped even if the replacement has not finished.
+- A step that ignores its abort signal may still be running when its retry starts. Its result and rows are dropped, but not what it did elsewhere, so steps must pass the signal on and change nothing outside `onSave`.
+- Retrying an old failed job is allowed while a newer run of the same outlet and date is in progress. Both finish, and readers use the latest successful one.
 - BullMQ decides when a step has failed; the worker then records it. If that record is lost (Postgres was down), the run looks in progress until `pnpm pipeline:run` is repeated, which records the failure and starts a new run.
 - A crash between Postgres and Redis leaves a run in progress without jobs until its creation is repeated.
 - `agent_runs.outlet_id` references `outlets`, so the mock-data reset (ADR 0006, amended) now empties `agent_runs` too, Copilot rows included. The rows pointing at them were already emptied by it.

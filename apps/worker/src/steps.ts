@@ -3,6 +3,10 @@ import type { McpServer } from "@anvia/core/mcp";
 import type { PipelineStep } from "@sisaku/db";
 import * as z from "zod";
 import { ingestStep } from "./ingest";
+import type { Tx } from "./runs";
+
+/** Thrown by a step when trying again cannot help, so it gets no other attempt. */
+export class PermanentError extends Error {}
 
 /** The pipeline run a step works for. */
 export type PipelineRun = {
@@ -23,6 +27,12 @@ export type StepContext = {
   readonly trace: AgentTraceOptions;
   /** Aborted when the step's time limit is up. */
   readonly signal: AbortSignal;
+  /**
+   * Adds writes of the step's own rows to the transaction that saves its result, so they are saved
+   * together or not at all. Delete this run's rows first, then insert: a rerun replaces them. Rows
+   * written any other way are left behind by a failed attempt.
+   */
+  onSave(write: (tx: Tx) => Promise<void>): void;
 };
 
 /** One step of the nightly pipeline. Replacing a stub means replacing one of these. */
@@ -31,7 +41,7 @@ export type StepDefinition<Output = unknown> = {
   /** Output that does not match, or does not after being stored as JSON, is never saved. */
   readonly output: z.ZodType<Output>;
   run(context: StepContext): Promise<Output>;
-  /** What to save instead once the step's attempts have run out. Not used until #79. */
+  /** What to save instead once the step's attempts have run out. Also has the time limit. */
   fallback?(context: StepContext, error: unknown): Promise<Output>;
   /** For one attempt; `DEFAULT_TIME_LIMIT_MS` when left out. */
   readonly timeLimitMs?: number;

@@ -39,7 +39,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Ingest step", () => {
     ({ db, pool } = await setupTestDb());
     mcp = await connectInMemoryServers(db);
     redis = testRedis();
-    runs = createPipelineRuns({ db, redis: redis.redis });
+    runs = createPipelineRuns({ db, redis: redis.redis, retryDelayMs: 20 });
   });
   afterAll(async () => {
     await runs?.close();
