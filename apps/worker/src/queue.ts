@@ -1,5 +1,6 @@
 import { PIPELINE_STEPS, type PipelineStep } from "@sisaku/db";
 import { FlowProducer, Queue, type FlowJob } from "bullmq";
+import * as z from "zod";
 
 /** One queue for every step, so Bull Board shows a run as one tree (ADR 0017). */
 export const PIPELINE_QUEUE = "nightly-pipeline";
@@ -7,11 +8,16 @@ export const PIPELINE_QUEUE = "nightly-pipeline";
 /** How long finished jobs stay in Redis. Postgres keeps the history. */
 const KEEP_FINISHED_SECONDS = 14 * 24 * 60 * 60;
 
+/** One attempt and three retries, 30, 60 and 120 seconds apart. */
+export const STEP_ATTEMPTS = 4;
+const RETRY_DELAY_MS = 30_000;
+
 /** Where the queue lives. `prefix` keeps tests apart; production uses BullMQ's default. */
 export type PipelineRedis = { url: string; prefix?: string };
 
 /** Everything a job carries: the rest is read from Postgres. */
-export type PipelineJobData = { runId: string; step: PipelineStep };
+export const pipelineJobData = z.object({ runId: z.uuid(), step: z.enum(PIPELINE_STEPS) });
+export type PipelineJobData = z.infer<typeof pipelineJobData>;
 
 export type RunQueueState =
   | { type: "missing" }
@@ -27,7 +33,7 @@ function jobId(runId: string, step: PipelineStep) {
 }
 
 /** The run as nested jobs: a step waits for its child, the step before it. */
-function runFlow(runId: string): FlowJob {
+function runFlow(runId: string, retryDelayMs: number): FlowJob {
   let flow: FlowJob | undefined;
   for (const step of PIPELINE_STEPS) {
     flow = {
@@ -36,6 +42,8 @@ function runFlow(runId: string): FlowJob {
       data: { runId, step } satisfies PipelineJobData,
       opts: {
         jobId: jobId(runId, step),
+        attempts: STEP_ATTEMPTS,
+        backoff: { type: "exponential", delay: retryDelayMs },
         removeOnComplete: { age: KEEP_FINISHED_SECONDS },
         removeOnFail: { age: KEEP_FINISHED_SECONDS },
       },
@@ -45,8 +53,8 @@ function runFlow(runId: string): FlowJob {
   return flow!;
 }
 
-/** Puts pipeline runs on the queue. */
-export function createPipelineQueue(redis: PipelineRedis) {
+/** Puts pipeline runs on the queue. `retryDelayMs` is the wait before the first retry. */
+export function createPipelineQueue(redis: PipelineRedis, retryDelayMs = RETRY_DELAY_MS) {
   const queue = new Queue(PIPELINE_QUEUE, queueOptions(redis));
   const flows = new FlowProducer(queueOptions(redis));
   const lastStep = PIPELINE_STEPS.at(-1)!;
@@ -66,7 +74,7 @@ export function createPipelineQueue(redis: PipelineRedis) {
       return { type: "queued" };
     },
     async add(runId: string): Promise<void> {
-      await flows.add(runFlow(runId));
+      await flows.add(runFlow(runId, retryDelayMs));
     },
     async close(): Promise<void> {
       await Promise.all([flows.close(), queue.close()]);

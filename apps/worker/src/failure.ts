@@ -30,3 +30,26 @@ export async function recordFailure(
       .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running")));
   });
 }
+
+/**
+ * Records an attempt that failed. Unless it was the last one, the step is pending until its retry:
+ * a step still running when a worker takes it up was interrupted. An attempt that is no longer the
+ * current one, because its worker was thought dead, changes nothing.
+ */
+export async function recordAttemptError(
+  db: Db,
+  { runId, step }: PipelineJobData,
+  { attempt, message, last }: { attempt: number; message: string; last: boolean },
+): Promise<void> {
+  await db
+    .update(pipelineJobs)
+    .set({ error: message, ...(last ? {} : { status: "pending" }) })
+    .where(
+      and(
+        eq(pipelineJobs.runId, runId),
+        eq(pipelineJobs.step, step),
+        eq(pipelineJobs.status, "running"),
+        eq(pipelineJobs.attempts, attempt),
+      ),
+    );
+}

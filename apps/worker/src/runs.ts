@@ -13,6 +13,7 @@ import { recordFailure } from "./failure";
 import { createPipelineQueue, type PipelineRedis } from "./queue";
 
 export type Db = ReturnType<typeof createDb>["db"];
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** A run that was asked for but must not start. Its message is for the person asking. */
 export class RunRefused extends Error {}
@@ -20,9 +21,16 @@ export class RunRefused extends Error {}
 const isoDate = z.iso.date();
 const uuid = z.uuid();
 
+export type PipelineRunsDeps = {
+  db: Db;
+  redis: PipelineRedis;
+  /** The wait before a step's first retry, doubled for each one after. Tests shorten it. */
+  retryDelayMs?: number;
+};
+
 /** Creates pipeline runs. A worker executes them. */
-export function createPipelineRuns({ db, redis }: { db: Db; redis: PipelineRedis }) {
-  const queue = createPipelineQueue(redis);
+export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps) {
+  const queue = createPipelineQueue(redis, retryDelayMs);
 
   async function findOutlet(idOrName: string): Promise<string> {
     const found = await db

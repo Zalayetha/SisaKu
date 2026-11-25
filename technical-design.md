@@ -137,10 +137,11 @@ When something fails, the system falls back to the plain forecast and tells the 
 
 | Failure | What happens |
 | --- | --- |
-| LLM call times out or errors | BullMQ retries the step up to 3 times; if it still fails, a step with a fallback uses it and counts as degraded (Forecast: the plain statistical forecast, and the brief says "AI adjustment unavailable today") |
+| LLM call times out or errors | An attempt stops after 5 minutes. BullMQ retries the step up to 3 times, after 30, 60 and 120 seconds; if it still fails, a step with a fallback uses it and counts as degraded (Forecast: the plain statistical forecast, and the brief says "AI adjustment unavailable today") |
 | No waste logged for a day | Pipeline still runs; the morning brief asks the manager to log yesterday's waste |
 | Vision model unsure about a photo | Confidence below 0.6 always asks the user to confirm or type the item and portion count or weight |
 | A pipeline step fails | Only that step reruns; earlier outputs are kept. Without a fallback the run stops as failed until the step is retried |
+| The worker is killed during a step | Another worker, or the same one restarted, runs that step again within a minute. After 4 kills the step uses its fallback or fails |
 | Analyze step loops | Hard limit of 5 tool calls per item |
 
 **Guardrails**

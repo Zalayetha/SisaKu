@@ -36,7 +36,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     ({ db, pool } = await setupTestDb());
     mcp = await connectInMemoryServers(db);
     redis = testRedis();
-    runs = createPipelineRuns({ db, redis: redis.redis });
+    runs = createPipelineRuns({ db, redis: redis.redis, retryDelayMs: 20 });
   });
 
   afterEach(async () => {

@@ -37,7 +37,7 @@ Something missing from a business date's data, found by Ingest: no sales, no pre
 _Avoid_: Error, anomaly
 
 **Degraded**:
-Said of a step that could not finish and used its fallback instead, such as the plain baseline forecast. The pipeline run still succeeds.
+Said of a step whose attempts ran out and that used its fallback instead, such as the plain baseline forecast. The pipeline run still succeeds.
 _Avoid_: Partial, skipped
 
 ## Waste
