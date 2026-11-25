@@ -24,6 +24,7 @@
     "db:reset": "pnpm --filter @sisaku/db db:reset",
     "db:import-csv": "pnpm --filter @sisaku/db db:import-csv",
     "worker": "pnpm --filter @sisaku/worker start",
+    "board": "pnpm --filter @sisaku/api start",
     "pipeline:run": "pnpm --filter @sisaku/worker pipeline:run"
   },
   "devDependencies": {
