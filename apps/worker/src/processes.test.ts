@@ -101,6 +101,15 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
     expect(await db.select().from(agentRuns)).toHaveLength(before);
   });
 
+  it("pipeline:run says so when Postgres cannot be reached", async () => {
+    const { code, output } = await command(["--outlet", ids.outletA, "--date", "2026-03-09"], {
+      ...settings,
+      DATABASE_URL: "postgres://x:x@localhost:1/x",
+    });
+    expect(code).toBe(1);
+    expect(output.trim()).toBe("Postgres at DATABASE_URL cannot be reached");
+  });
+
   it.each([
     "REDIS_URL",
     "DATABASE_URL",
@@ -115,7 +124,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
 
   it.each([
     ["Redis", { REDIS_URL: DEAD_REDIS }, /Redis at REDIS_URL cannot be reached/],
-    ["Postgres", { DATABASE_URL: "postgres://x:x@127.0.0.1:1/x" }, /ECONNREFUSED/],
+    [
+      "Postgres",
+      { DATABASE_URL: "postgres://x:x@127.0.0.1:1/x" },
+      /Postgres at DATABASE_URL cannot be reached/,
+    ],
     ["kitchen-mcp without a token", { KITCHEN_MCP_URL: DEAD_MCP }, /KITCHEN_MCP_TOKEN/],
     ["kitchen-mcp", { KITCHEN_MCP_URL: DEAD_MCP, KITCHEN_MCP_TOKEN: "t", ...PRIVATE }, NO_MCP],
     ["impact-mcp", { IMPACT_MCP_URL: DEAD_MCP, IMPACT_MCP_TOKEN: "t", ...PRIVATE }, NO_MCP],

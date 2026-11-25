@@ -1,7 +1,6 @@
 import { connectMcpServers, createLens } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
-import { sql } from "drizzle-orm";
-import { assertRedis, pipelineRedis } from "./settings";
+import { assertPostgres, assertRedis, pipelineRedis } from "./settings";
 import { createPipelineWorker } from "./worker";
 
 // Fails fast (ADR 0017): every setting, and every connection but Lens, is checked before a job is
@@ -10,7 +9,7 @@ const redis = pipelineRedis();
 // Its own service name, apart from the Copilot's.
 const lens = createLens("sisaku-pipeline");
 const { db, pool } = createDb();
-await db.execute(sql`select 1`);
+await assertPostgres(db);
 await assertRedis(redis);
 const mcp = await connectMcpServers();
 

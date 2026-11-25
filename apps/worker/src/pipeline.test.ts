@@ -413,6 +413,37 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     }
   });
 
+  it.each(["ingest", "report"] as const)(
+    "keeps a recorded failure when a worker thought dead finishes %s late",
+    async (name) => {
+      const late = blockingStep(name);
+      const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
+      startWorker({ steps: { ...DEFAULT_STEPS, [name]: late.step } });
+      await expect.poll(() => late.started.count).toBe(1);
+      await workers.splice(0)[0]!.stop(0);
+
+      // Its jobs are queued again, fail without a record, and the run is replaced.
+      await redis.clear();
+      await runs.startManual({ outlet: ids.outletA, date: DATE });
+      const broken = createDb(testDbUrl);
+      await broken.pool.end();
+      const failures: string[] = [];
+      startWorker({ db: broken.db, log: (message) => failures.push(message) });
+      await expect.poll(() => failures.join()).toMatch(/Could not record/);
+      await workers.splice(0)[0]!.stop();
+      const next = await runs.startManual({ outlet: ids.outletA, date: DATE });
+      expect((await readRun(runId)).run.status).toBe("failed");
+
+      late.release();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const { run, jobs } = await readRun(runId);
+      expect(run).toMatchObject({ status: "failed", error: expect.any(String) });
+      if (name === "ingest") expect(jobs[0]).toMatchObject({ status: "failed", output: undefined });
+      startWorker();
+      await expectStatus(next.runId, "succeeded");
+    },
+  );
+
   it("fails the step whose output would not survive being saved as JSON", async () => {
     const ingest: StepDefinition = {
       name: "ingest",

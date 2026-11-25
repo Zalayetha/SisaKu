@@ -100,13 +100,15 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     const output = toStored(step, raw);
     await db.transaction(async (tx) => {
       const finishedAt = new Date();
-      // A worker thought dead may finish the same step later; the first result stands.
-      const saved = await tx
-        .insert(pipelineJobResults)
-        .values({ jobId: job.id, output })
-        .onConflictDoNothing({ target: pipelineJobResults.jobId })
-        .returning({ id: pipelineJobResults.id });
-      if (saved.length === 0) return;
+      // A worker thought dead may finish late. What was recorded first stands: another worker's
+      // result, or the step's failure.
+      const [current] = await tx
+        .select({ status: pipelineJobs.status })
+        .from(pipelineJobs)
+        .where(ofStep)
+        .for("update");
+      if (current?.status !== "running") return;
+      await tx.insert(pipelineJobResults).values({ jobId: job.id, output });
       await tx
         .update(pipelineJobs)
         .set({ status: "succeeded", error: null, finishedAt })
@@ -115,7 +117,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
         await tx
           .update(agentRuns)
           .set({ status: "succeeded", error: null, finishedAt })
-          .where(eq(agentRuns.id, runId));
+          .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running")));
       }
     });
   }
@@ -131,7 +133,9 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
   const recording = new Set<Promise<void>>();
   worker.on("failed", (job, error) => {
     log(`Pipeline job ${job?.id} failed`, error);
-    if (!job) return;
+    // BullMQ sets `finishedOn` only when it will not try again. Attempts left do not tell: a
+    // permanent error or too many stalls end the job early.
+    if (!job?.finishedOn) return;
     const { runId, step } = job.data;
     const done = recordFailure(db, job.data, error.message)
       .catch((failure: unknown) =>

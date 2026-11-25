@@ -40,7 +40,7 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 ## Consequences
 
 - Redis can be emptied without losing finished work: the run's state is in Postgres, and repeating `pnpm pipeline:run` queues the rest.
-- A worker thought dead may still finish its step. The first result saved stands, and the late one is dropped.
+- A worker thought dead may still finish its step. What was recorded first stands, a result or a failure, and the late one is dropped.
 - BullMQ decides when a step has failed; the worker then records it. If that record is lost (Postgres was down), the run looks in progress until `pnpm pipeline:run` is repeated, which records the failure and starts a new run.
 - A crash between Postgres and Redis leaves a run in progress without jobs until its creation is repeated.
 - `agent_runs.outlet_id` references `outlets`, so the mock-data reset (ADR 0006, amended) now empties `agent_runs` too, Copilot rows included. The rows pointing at them were already emptied by it.

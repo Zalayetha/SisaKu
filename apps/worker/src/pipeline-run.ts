@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { createDb } from "@sisaku/db";
 import { createPipelineRuns } from "./runs";
-import { assertRedis, pipelineRedis } from "./settings";
+import { assertPostgres, assertRedis, pipelineRedis } from "./settings";
 
 // pnpm pipeline:run --outlet <id or name> --date YYYY-MM-DD
 // Queues one pipeline run by hand. The worker executes it.
@@ -26,6 +26,7 @@ async function main() {
   const { db, pool } = createDb();
   const runs = createPipelineRuns({ db, redis });
   try {
+    await assertPostgres(db);
     const { runId } = await runs.startManual(request);
     console.log(`Queued pipeline run ${runId}`);
   } finally {
