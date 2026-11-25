@@ -1,5 +1,5 @@
 import { outlets } from "@sisaku/db";
-import { DelayedError, Queue, type Job } from "bullmq";
+import { DelayedError, Queue, type Job, type JobSchedulerJson } from "bullmq";
 import * as z from "zod";
 import { finishedJobOptions, PIPELINE_QUEUE, queueOptions, type PipelineRedis } from "./queue";
 import type { createPipelineRuns, Db } from "./runs";
@@ -19,9 +19,9 @@ const EARLY_MS = 60_000;
 /**
  * A start that fails, as when Postgres is down, is tried every minute from 22:00 to 06:00.
  *
- * BullMQ keeps these options, the job's name and its data with each scheduler, and `sync` compares
- * only the pattern and the timezone. After changing any of them, remove the `night-*` schedulers
- * from Redis: the next worker start adds them again, and catches up a start that was pending.
+ * BullMQ keeps these options with each scheduler, and `sync` does not compare them. After changing
+ * them, remove the `night-*` schedulers from Redis: the next worker start adds them again, and
+ * catches up a start that was pending.
  */
 const START_OPTIONS = {
   attempts: (24 - START_HOUR + TOO_LATE_HOUR) * 60,
@@ -73,6 +73,20 @@ function isTimezone(timezone: string) {
   } catch {
     return false;
   }
+}
+
+/** Whether a scheduler starts the outlet's runs, forever. Bull Board can change all of this. */
+function isFor(scheduler: JobSchedulerJson, { outletId, timezone }: ScheduledStart) {
+  const data = startJobData.safeParse(scheduler.template?.data).data;
+  return (
+    scheduler.name === START_JOB &&
+    scheduler.pattern === PATTERN &&
+    scheduler.tz === timezone &&
+    data?.outletId === outletId &&
+    data.timezone === timezone &&
+    scheduler.endDate === undefined &&
+    scheduler.limit === undefined
+  );
 }
 
 /** Starts every outlet's nightly pipeline at 22:00 its time, and catches up a missed night. */
@@ -135,10 +149,12 @@ export function createPipelineSchedule(deps: PipelineScheduleDeps) {
       }
       for (const outlet of scheduled) {
         const key = ID_PREFIX + outlet.outletId;
-        const { pattern, tz } = current.get(key) ?? {};
-        // Updating a scheduler drops its start that is due but not yet taken (ADR 0017), so one
-        // that has not changed is left alone.
-        if (pattern !== PATTERN || tz !== outlet.timezone) {
+        const found = current.get(key);
+        // Replacing a scheduler drops its start that is due but not yet taken (ADR 0017), so one
+        // that is as it should be is left alone.
+        if (!found || !isFor(found, outlet)) {
+          // An update would keep an end date or a limit set in Bull Board.
+          if (found) await queue.removeJobScheduler(key);
           await queue.upsertJobScheduler(
             key,
             { pattern: PATTERN, tz: outlet.timezone },

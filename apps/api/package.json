@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
   "scripts": {
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -20,8 +19,6 @@
   "devDependencies": {
     "@anvia/mcp": "1.2.7",
     "@sisaku/agents": "workspace:*",
-    "@sisaku/db": "workspace:*",
-    "drizzle-orm": "^0.45.2",
     "tsx": "^4.19.0",
     "zod": "4.6.7"
   }

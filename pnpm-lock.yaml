@@ -66,12 +66,6 @@ importers:
       '@sisaku/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@sisaku/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)
       tsx:
         specifier: ^4.19.0
         version: 4.23.15

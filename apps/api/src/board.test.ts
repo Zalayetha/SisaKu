@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer, type AddressInfo } from "node:net";
+import { networkInterfaces } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
@@ -13,12 +14,11 @@ import {
   queueOptions,
   type StepDefinition,
 } from "@sisaku/worker";
+import { deleteRuns, expectStatus, readRun, testRedis, testRedisUrl } from "@sisaku/worker/testing";
 import { Queue } from "bullmq";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import * as z from "zod";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
-import { testRedis, testRedisUrl } from "../../worker/src/testing/redis";
-import { deleteRuns, expectStatus, readRun } from "../../worker/src/testing/runs";
 import { createBoardApp } from "./board";
 
 const USER = "operator";
@@ -122,6 +122,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Bull Board", { timeout: 30_000 }, 
         ["PUT", `/api/queues/${PIPELINE_QUEUE}/pause`],
         ["PUT", "/api/queues/pause"],
         ["POST", `/api/queues/${PIPELINE_QUEUE}/add`],
+        ["PATCH", `${job}/update-data`],
+        ["PATCH", `/api/queues/${PIPELINE_QUEUE}/job-schedulers/any`],
+        ["HEAD", "/"],
+        ["OPTIONS", "/api/queues"],
+        ["GET", "//api/queues"],
         ["GET", "/no-such-page"],
       ];
       for (const [method, path] of routes) {
@@ -203,6 +208,28 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Bull Board", { timeout: 30_000 }, 
     expect((await readRun(db, runId)).statuses).toEqual(Array(5).fill("succeeded"));
   });
 
+  it("resumes every failed run when all failed jobs are retried", async () => {
+    let failing = true;
+    const ingest: StepDefinition = {
+      name: "ingest",
+      output: z.object({ ok: z.literal(true) }),
+      run: async () => {
+        if (failing) throw new PermanentError("down");
+        return { ok: true };
+      },
+    };
+    const a = await start();
+    const b = await runs.startManual({ outlet: ids.outletB, date: "2026-03-01" });
+    startWorker({ ingest });
+    await expectStatus(db, a.runId, "failed");
+    await expectStatus(db, b.runId, "failed");
+    failing = false;
+    const path = `/api/queues/${PIPELINE_QUEUE}/retry/failed`;
+    expect((await request(path, { method: "PUT" })).status).toBeLessThan(300);
+    await expectStatus(db, a.runId, "succeeded");
+    await expectStatus(db, b.runId, "succeeded");
+  });
+
   it("does not take orders from another website through the operator's browser", async () => {
     const { runId } = await start();
     // What a form or a script on another site can send with the browser's saved password.
@@ -271,6 +298,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Bull Board", { timeout: 30_000 }, 
         ]);
         expect((await fetch(new URL(await scriptPath(), url), { headers })).status).toBe(200);
         expect(api.output()).not.toContain(PASSWORD);
+        // Not from another machine either, when this one has an address there.
+        const outside = Object.values(networkInterfaces())
+          .flat()
+          .find((address) => address?.family === "IPv4" && !address.internal)?.address;
+        if (outside) await expect(fetch(`http://${outside}:${port}/`)).rejects.toThrow();
         api.child.kill("SIGTERM");
         expect(await api.exit).toBe(0);
       } finally {

@@ -69,8 +69,8 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 
 - The ready-made `@bull-board` packages on a Hono server, no dashboard of our own. `apps/api` runs from source through tsx and drops the tsup build of ADR 0004, like the worker. It takes the queue's name and settings from `@sisaku/worker/queue` and `/settings`, so both always use the same queue.
 - Basic auth in front of every route, static files included, with one operator account. It refuses to start without a password. Requests from another website are refused too, because the browser sends the saved password with them (Hono's CSRF check; Bull Board itself takes any content type).
-- It listens on 127.0.0.1 unless `API_HOST` is set. On the VPS it is reached through a tunnel (#42).
-- Retrying a failed job there resumes its run. Bull Board can also pause, add, promote, delete and obliterate. The worker checks every job it takes, so a job added by hand with other data fails; an obliterated queue loses its jobs, and gets its schedules back when a worker starts.
+- It listens on 127.0.0.1 unless `API_HOST` is set. On the VPS (#42) the container sets `API_HOST=0.0.0.0` and its port is published to the host's loopback only (`127.0.0.1:3003:3003`), reached through an SSH tunnel. A proxy that rewrites the host name must keep HTTPS, or the CSRF check refuses actions.
+- Retrying a failed job there resumes its run. Bull Board can also pause, add, promote, delete and obliterate. The worker checks every job it takes, so a job added by hand with other data fails; an obliterated queue loses its jobs, and gets its schedules back when a worker starts. A schedule edited there (its time, data, an end date or a limit) is put back at the next worker start too, and until then follows the edit.
 
 ## Consequences
 
