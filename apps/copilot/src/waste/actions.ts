@@ -11,6 +11,14 @@ import { photoPath, type PhotoStore } from "./photos";
 export const EXPIRED_TEXT =
   "Draft ini sudah kedaluwarsa atau tidak ditemukan. Kirim foto atau teksnya lagi.";
 export const NOT_YOURS_TEXT = "Hanya pengirim draft ini yang bisa menekan tombolnya.";
+/** Answers a typed "simpan" while a card is open: only a tap saves (ADR 0014). */
+export const TYPED_SAVE_TEXT = "Belum tersimpan. Ketuk tombol Simpan di kartu.";
+export const TYPED_SAVE_NOT_READY_TEXT =
+  "Belum tersimpan. Lengkapi dulu kartunya, lalu ketuk tombol Simpan.";
+
+/** Whether the whole message is "simpan", typed as a word or as the button's history line. */
+export const isTypedSave = (text: string) => /^(?:simpan|\[simpan\])[.!]*$/i.test(text.trim());
+
 export const NOT_READY_TEXT =
   "Belum bisa disimpan. Lengkapi dulu menu, jumlah porsi dan penyebabnya.";
 export const ALREADY_SAVED_TEXT = "Draft ini sudah tersimpan.";
