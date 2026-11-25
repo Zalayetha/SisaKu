@@ -16,7 +16,13 @@ const ID_PREFIX = "night-";
 /** How much earlier than its time a start is still taken for clocks that differ. */
 const EARLY_MS = 60_000;
 
-/** A start that fails, as when Postgres is down, is tried every minute from 22:00 to 06:00. */
+/**
+ * A start that fails, as when Postgres is down, is tried every minute from 22:00 to 06:00.
+ *
+ * BullMQ keeps these options, the job's name and its data with each scheduler, and `sync` compares
+ * only the pattern and the timezone. After changing any of them, remove the `night-*` schedulers
+ * from Redis: the next worker start adds them again, and catches up a start that was pending.
+ */
 const START_OPTIONS = {
   attempts: (24 - START_HOUR + TOO_LATE_HOUR) * 60,
   backoff: { type: "fixed", delay: 60_000 },
