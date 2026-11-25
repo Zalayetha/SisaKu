@@ -24,6 +24,9 @@ export type Attempt = {
   readonly startedAt: Date;
 };
 
+/** `interrupted` is why the step itself is not started again, when only its fallback is left. */
+export type StartedStep = { attempt: Attempt; interrupted?: PermanentError };
+
 /** What an attempt made: its output as stored, and the writes of the step's own rows. */
 export type Produced = { output: unknown; writes: readonly ((tx: Tx) => Promise<void>)[] };
 
@@ -57,7 +60,7 @@ function isCurrent(job: StepRecord | undefined, attempt: Attempt) {
 export async function startStep(
   db: Db,
   { runId, step }: PipelineJobData,
-): Promise<{ attempt: Attempt; interrupted?: PermanentError } | undefined> {
+): Promise<StartedStep | undefined> {
   return db.transaction(async (tx) => {
     const job = await lockStep(tx, { runId, step });
     if (!job) throw new PermanentError(`Pipeline run ${runId} has no job for ${step}`);

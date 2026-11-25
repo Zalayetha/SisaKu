@@ -41,16 +41,24 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 - A step that reached its fallback earlier, by a permanent error or after a retry by hand, runs again if its worker is killed during the fallback, within its 4 attempts. The record does not say that its attempts had run out. This is harmless, because a step saves only through `onSave`, with its result.
 - The record names its current attempt by its start time, and only that attempt may save, use the fallback, or record a failure. A worker thought dead that finishes late changes nothing.
 
+**Tracing (#80)**
+
+- One Lens trace per run. Its id is generated and stored when the run is created, so every step, retry and restarted worker joins it. Each step attempt is a root span of that trace, made with Anvia's pipeline observer (`pipeline.<step>`), also when the step calls no LLM. A run-level span would have to stay open across processes, so there is none.
+- A span is labelled with agent, run id, outlet id, business date, step and attempt, and never with a name. It ends when the attempt's result is saved, and covers the fallback too: a degraded step's last span carries the error that degraded it.
+- A step gets `trace` and `observability` in its context and passes both to the agents it runs, which nests them under the attempt's span.
+- `safe` capture, under the service name `sisaku-pipeline`. It keeps error messages, and a failed query's message has the values it would have saved, so those are cut off in Lens and kept in `pipeline_jobs.error`. `cost_usd` stays empty.
+- Lens is best effort. Its errors are logged, a span's start is waited for at most 200 ms (without its id, agents join the trace but are not nested), and its end is not waited for. On shutdown the spans of steps left behind are cancelled, and telemetry is flushed within 5 seconds.
+
 **Boundaries**
 
 - As in ADR 0012, "agents reach data only through tools" binds the LLM, not fixed code. Kitchen data is read through MCP tools; runs, jobs and results are written by fixed code through `@sisaku/db`. No MCP write tools are added.
-- A trace id is generated and stored when the run is created, so every step and retry can join one trace.
 - `apps/worker` holds the queue and the step engine, and runs from source through tsx like the Copilot, so it drops the tsup build of ADR 0004. LLM steps will live in `packages/agents`.
 - The worker refuses to start when Redis, Postgres, either MCP connection or the Lens settings are missing or broken. Lens itself is not contacted, because an outage must never stop a run. On SIGTERM it waits up to 30 seconds for the current steps.
 - Bull Board is the operators' dashboard, in `apps/api` so it outlives a killed worker (#82).
 
 ## Consequences
 
+- An attempt whose worker was killed (SIGKILL) has no span, because a span is sent when it ends. The gap in the attempt numbers shows it; only a kill in the 4th attempt leaves no gap, and there the next span carries "Interrupted on attempt 4 of 4".
 - Redis can be emptied without losing finished work: the run's state is in Postgres, and repeating `pnpm pipeline:run` queues the rest.
 - A worker thought dead may still finish its step. Its result is dropped even if the replacement has not finished.
 - A step that ignores its abort signal may still be running when its retry starts. Its result and rows are dropped, but not what it did elsewhere, so steps must pass the signal on and change nothing outside `onSave`.

@@ -13,7 +13,16 @@ await assertPostgres(db);
 await assertRedis(redis);
 const mcp = await connectMcpServers();
 
-const worker = createPipelineWorker({ db, servers: mcp.servers, redis });
+const worker = createPipelineWorker({
+  db,
+  servers: mcp.servers,
+  redis,
+  // "safe": no prompt, reply or tool bodies in Lens (ADR 0012).
+  lens: {
+    pipeline: lens.pipelineObserver({ captureMode: "safe" }),
+    agent: lens.observer({ captureMode: "safe" }),
+  },
+});
 console.error("Nightly pipeline worker is waiting for runs.");
 
 const CLOSE_WAIT_MS = 5_000;

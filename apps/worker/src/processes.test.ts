@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { agentRuns } from "@sisaku/db";
 import { eq } from "drizzle-orm";
@@ -74,6 +76,66 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
       .toBe("succeeded");
     worker.child.kill("SIGTERM");
     expect(await worker.exit).toBe(0);
+  });
+
+  type Attribute = { key: string; value: { stringValue?: string; intValue?: number } };
+  type Export = {
+    resourceSpans: {
+      resource: { attributes: Attribute[] };
+      scopeSpans: { spans: { traceId: string; name: string; attributes: Attribute[] }[] }[];
+    }[];
+  };
+
+  it("the worker sends one trace per run to Lens, without content, and flushes it on SIGTERM", async () => {
+    const received: { authorization: string | undefined; body: string }[] = [];
+    const lens: Server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk: Buffer) => (body += chunk.toString()));
+      request.on("end", () => {
+        received.push({ authorization: request.headers.authorization, body });
+        response.setHeader("content-type", "application/json").end("{}");
+      });
+    });
+    await new Promise<void>((resolve) => lens.listen(0, "127.0.0.1", resolve));
+    const { port } = lens.address() as AddressInfo;
+    try {
+      const { output } = await command(["--outlet", "Warung Test", "--date", "2026-03-02"]);
+      const runId = /[0-9a-f]{8}-[0-9a-f-]{27}/.exec(output)![0];
+      const worker = start("src/main.ts", [], {
+        ...settings,
+        ANVIA_LENS_BASE_URL: `http://127.0.0.1:${port}`,
+      });
+      const readRun = async () =>
+        (await db.select().from(agentRuns).where(eq(agentRuns.id, runId)))[0]!;
+      await expect
+        .poll(async () => (await readRun()).status, { timeout: 30_000 })
+        .toBe("succeeded");
+      // At once, so the spans are still waiting for the next batch.
+      worker.child.kill("SIGTERM");
+      expect(await worker.exit).toBe(0);
+
+      const exports = received.map(({ body }) => JSON.parse(body) as Partial<Export>);
+      const resources = exports.flatMap((e) => e.resourceSpans ?? []);
+      const spans = resources.flatMap((r) => r.scopeSpans.flatMap((scope) => scope.spans));
+      expect(spans.map((span) => span.name).sort()).toEqual(
+        ["analyze", "forecast", "ingest", "recommend", "report"].map((s) => `pipeline.${s}`),
+      );
+      const { traceId } = await readRun();
+      expect(new Set(spans.map((span) => span.traceId))).toEqual(new Set([traceId]));
+      expect(resources[0]!.resource.attributes).toContainEqual({
+        key: "service.name",
+        value: { stringValue: "sisaku-pipeline" },
+      });
+      for (const { attributes } of spans) {
+        const keys = attributes.map(({ key }) => key);
+        expect(keys).toContain("anvia.run.metadata.attempt");
+        expect(keys).not.toContain("anvia.pipeline.input");
+        expect(keys).not.toContain("anvia.pipeline.output");
+      }
+      expect(JSON.stringify(received)).not.toMatch(/Warung|Rendang|Nasi/);
+    } finally {
+      await new Promise((resolve) => lens.close(resolve));
+    }
   });
 
   it.each([

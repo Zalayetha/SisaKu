@@ -24,21 +24,26 @@ import {
   startStep,
   type Attempt,
   type Produced,
+  type StartedStep,
 } from "./records";
 import type { Db, Tx } from "./runs";
 import {
   DEFAULT_STEPS,
   DEFAULT_TIME_LIMIT_MS,
   PermanentError,
+  type PipelineRun,
   type PipelineSteps,
   type StepContext,
 } from "./steps";
+import { createPipelineTracer, type AttemptSpan, type PipelineLens } from "./trace";
 
 export type PipelineWorkerDeps = {
   db: Db;
   servers: readonly McpServer[];
   redis: PipelineRedis;
   steps?: PipelineSteps;
+  /** Left out, runs are not traced. */
+  lens?: PipelineLens;
   /** How long after a worker dies its step is taken over, at most twice this. Tests shorten it. */
   stalledAfterMs?: number;
   log?: (message: string, error?: unknown) => void;
@@ -88,6 +93,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
   const { db } = deps;
   const steps = deps.steps ?? DEFAULT_STEPS;
   const log = deps.log ?? ((message, error) => console.error(message, error ?? ""));
+  const tracer = createPipelineTracer(deps.lens, log);
 
   async function loadRun(runId: string) {
     const [run] = await db
@@ -145,17 +151,36 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
   /** The attempt a BullMQ job is on, for the `failed` event. */
   const attempts = new WeakMap<Job, Attempt>();
 
-  /** One attempt of one step: the work first, then the save. */
+  /** One attempt of one step, as a span in the run's trace. */
   async function runStep(job: Job<PipelineJobData>): Promise<void> {
     const valid = pipelineJobData.safeParse(job.data);
     if (!valid.success) throw new PermanentError(`Not a pipeline job: ${valid.error.message}`);
-    const { runId, step } = valid.data;
-    const { traceId, ...run } = await loadRun(runId);
+    const { traceId, ...run } = await loadRun(valid.data.runId);
     const started = await startStep(db, valid.data);
     if (!started) return;
-    const { attempt, interrupted } = started;
-    attempts.set(job, attempt);
+    attempts.set(job, started.attempt);
+    const span = await tracer.start(run, traceId, started.attempt);
+    try {
+      const degraded = await runAttempt(job, run, started, span);
+      if (degraded) span.fail(degraded.error);
+      else span.end();
+    } catch (error) {
+      span.fail(error);
+      throw error;
+    }
+  }
 
+  /**
+   * The work first, then the save; the fallback once the step's attempts have run out. Gives the
+   * error that degraded the step, if it was.
+   */
+  async function runAttempt(
+    job: Job<PipelineJobData>,
+    run: PipelineRun,
+    { attempt, interrupted }: StartedStep,
+    span: AttemptSpan,
+  ): Promise<{ error: unknown } | undefined> {
+    const { runId, step } = attempt;
     const definition = steps[step];
     async function produce(work: (context: StepContext) => Promise<unknown>): Promise<Produced> {
       const outputs = await loadOutputs(runId, step);
@@ -168,7 +193,8 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
             run,
             outputs,
             servers: deps.servers,
-            trace: { traceId },
+            trace: span.trace,
+            observability: span.observability,
             signal,
             onSave: (write) => void writes.push(write),
           }),
@@ -208,6 +234,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
       if (interrupted && job.stalledCounter >= MAX_KILLS) throw new Error("interrupted too often");
       const produced = await produce((context) => fallback(context, lastError));
       await saveStep(db, attempt, produced, { status: "degraded", error: message });
+      return { error: lastError };
     } catch (error) {
       log(`The fallback of ${step} in run ${runId} failed`, error);
       throw new PermanentError(`${message}; its fallback failed: ${messageOf(error)}`);
@@ -263,6 +290,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
       if (timedOut) log(`Stopped with a step still running after ${waitMs} ms`);
       await worker.close(timedOut);
       await Promise.all(recording);
+      await tracer.close();
     },
   };
 }

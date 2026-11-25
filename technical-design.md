@@ -163,7 +163,7 @@ Four core evals run in CI on every push.
 
 **Observability (Anvia Lens)**
 
-- One trace per pipeline run or chat turn, with a span per LLM call and tool call
+- One trace per pipeline run or chat turn, with a span per LLM call and tool call, and per step attempt of a pipeline run
 - Each span logs model, tokens, cost, latency, tool arguments and result, and errors
 - User corrections and rejected recommendations are recorded as feedback on the trace
 - Bull Board shows job status, retries and failures
