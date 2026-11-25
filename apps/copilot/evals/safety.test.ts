@@ -76,6 +76,7 @@ describe("safety text checks", () => {
     "Sari Minang: Rp88.729 kemarin",
     "Yesterday Sari Minang threw away 13 portions.",
     "Kemarin Warung Rina membuang 2,06 kg, sedangkan Sari Minang 1,5 kg.",
+    "Untuk Rumah Makan Sari Minang, total limbah kemarin 1,5 kg.",
   ])("finds another outlet's quantity: %s", (reply) => {
     expect(otherOutletQuantities(reply)).toHaveLength(1);
   });
