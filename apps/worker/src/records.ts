@@ -51,7 +51,7 @@ function isCurrent(job: StepRecord | undefined, attempt: Attempt) {
  * Starts an attempt, or gives nothing when the step already has its result. A failed step starts
  * when its job is retried by hand: its attempts count anew, and its run is in progress again.
  *
- * A step that is still running was interrupted. If that was its last attempt it is not started
+ * A step that is still running was interrupted. If that was its 4th attempt it is not started
  * again: `interrupted` says so, and only its fallback is left.
  */
 export async function startStep(
