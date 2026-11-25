@@ -11,6 +11,72 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-25.4
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0009, ADR 0015)
+- Fingerprint: `8a55f896b290b156`
+- Changed, rule 11: "Your reply still gives the key numbers from the tools" → "…from the tools,
+  including the chart summary send_chart returns".
+- Changed tool description, `get_sales`: adds "with each item's total over the range (totals)";
+  its output gains `totals`.
+- Changed tool output, `send_chart`: gains `summary` (trend: total and highest day; waste vs sales:
+  portions wasted and sold; breakdown: total and top three), and its note says to give the key
+  numbers from it.
+- Why: `get_sales` gave daily rows only, so a 7-day question got no total; a model that calls
+  send_chart first, as rule 11 says, had no numbers to give.
+- Eval to move: none scored. Replies of `sales-ayam-7-days`, `chart-trend-march` and
+  `chart-rendang-vs-sales` are read by hand. Tool-call correctness (87/87) must stay.
+
+## 2026-11-25.3
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0016)
+- Fingerprint: `2a056c2763629de6`
+- Changed, rule 3: "Reply in the language the user writes in. If you cannot tell, reply in Bahasa
+  Indonesia." → "Reply in the language of the user's latest message, even when the menu, tool
+  results or earlier messages are in another language: a message in English gets a reply in
+  English. Keep menu item names as they are. If you cannot tell the language, reply in Bahasa
+  Indonesia."
+- Why: English questions were answered in Indonesian, mostly once a tool had been called: on
+  2026-11-25.2, 3 of 27 such replies were in English, against 3 of 3 without a tool call.
+- Eval to move: the reply language score, English (6/30 on 2026-11-25.2; Indonesian, 48/48, must
+  stay). Tool-call correctness (86/87) must stay.
+
+## 2026-11-25.2
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0014)
+- Fingerprint: `c5f7ffce2b5d30b8`
+- Added, rule 8, last point: "If no open waste guess is shown, never set corrects_open_guess: a
+  message correcting something logged earlier is about saved waste (rule 9)."
+- Added, rule 9: "If list_entries finds no matching entry, say that no saved entry was found and
+  ask whether to log it now; do not call propose_waste_entry until the user says yes."
+- In code, not instructions: `propose_waste_entry` refuses `corrects_open_guess` on a text turn
+  with no open guess, and points to list_entries and update_entry.
+- Why: with no open guess, the model answered "Rendang yang saya catat tadi salah" with a new
+  waste guess, which Simpan would have saved next to the wrong entry, counting the waste twice.
+- Eval to move: tool-call correctness, `correct-rendang-today` (0/3 on 2026-11-25.1, 1/3 on
+  2026-11-24.1). `correct-open-guess` (3/3) must stay.
+
+## 2026-11-25.1
+
+- Date: 2026-11-25
+- Issue: #69 (ADR 0012, ADR 0016)
+- Fingerprint: `9ef1352a33e6b214`
+- Changed, rule 2: "You only ever see the user's own outlet. The outlet is chosen for you; you
+  cannot look at another outlet, and you say so if asked." → "You only ever see the user's own
+  outlet, named below. The outlet is chosen for you. If the user asks about a different outlet,
+  do not call a tool for it and do not give your outlet's numbers as that outlet's; say you only
+  see the user's own outlet, by name. If they ask about both, answer for their own outlet only and
+  say so. If it is unclear which outlet they mean, answer for their own outlet and name it."
+- Added, turn context: "The user's outlet: <name>."
+- Why: the model was never told its outlet's name, so it could not tell that another outlet was
+  meant and gave this outlet's numbers as the other one's. Access was never wider than the user's
+  outlet.
+- Eval to move: tool-call correctness, `other-outlet` (0/3 on 2026-11-24.1).
+  `waste-own-outlet-by-name` (3/3) must stay.
+
 ## 2026-11-24.1
 
 - Date: 2026-11-24

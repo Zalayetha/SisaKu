@@ -1,12 +1,17 @@
+import { randomUUID } from "node:crypto";
 import type { ChannelEvent } from "@anvia/channel";
 import type { CompletionModel, JsonObject } from "@anvia/core";
 import type { AgentObserver, AgentRunObserver } from "@anvia/core/observability";
 import { COPILOT_INSTRUCTIONS_VERSION } from "@sisaku/agents";
+import { menuItems } from "@sisaku/db";
+import { eq } from "drizzle-orm";
 import { ChatHistory } from "../src/history";
 import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "../src/testing/fakes";
 import { APOLOGY, createTurnHandler } from "../src/turn";
 import { createUserLookup } from "../src/users";
+import { GuessStore, snapshot, type GuessLine } from "../src/waste/guess";
 import type { CopilotInput } from "./cases";
+import { noonIn } from "./clock";
 import type { EvalEnvironment } from "./environment";
 
 export type ToolCall = { name: string; args: unknown };
@@ -86,12 +91,47 @@ function recordingObserver(
   };
 }
 
-/** Noon on `day` in `timezone`, as an instant. */
-export function noonIn(day: string, timezone: string): Date {
-  const guess = new Date(`${day}T12:00:00Z`);
-  const local = new Date(guess.toLocaleString("en-US", { timeZone: timezone }));
-  const utc = new Date(guess.toLocaleString("en-US", { timeZone: "UTC" }));
-  return new Date(guess.getTime() - (local.getTime() - utc.getTime()));
+/** A guess store holding the case's open guess, as if its card had just been shown. */
+async function guessStore(
+  env: EvalEnvironment,
+  input: CopilotInput,
+  chat: { id: string; senderId: string; now: Date },
+): Promise<GuessStore> {
+  const store = new GuessStore(() => chat.now);
+  if (!input.openGuess) return store;
+  const user = await createUserLookup(env.db)(chat.senderId);
+  if (!user) throw new Error(`No user for ${chat.senderId}`);
+  const menu = await env.db.select().from(menuItems).where(eq(menuItems.outletId, user.outletId));
+  const lines = input.openGuess.lines.map((line): GuessLine => {
+    const found = menu.find((m) => m.id === line.item_id);
+    if (!found) throw new Error(`${line.item_id} is not on the eval outlet's menu`);
+    const { id, name, portionWeightKg } = found;
+    return {
+      item: { id, name, portionWeightKg: Number(portionWeightKg) },
+      portionCount: line.portion_count,
+    };
+  });
+  const draft = {
+    lines,
+    cause: input.openGuess.cause,
+    loggedAt: chat.now.toISOString(),
+    userSupplied: false,
+    confidence: undefined,
+  };
+  store.add({
+    ...draft,
+    id: randomUUID(),
+    userId: user.id,
+    outletId: user.outletId,
+    chatId: chat.id,
+    timezone: user.timezone,
+    source: "text",
+    candidates: [],
+    original: snapshot(draft),
+    cardMessageId: "eval-card",
+    createdAtMs: chat.now.getTime(),
+  });
+  return store;
 }
 
 export type TargetDeps = {
@@ -105,7 +145,7 @@ export type TargetDeps = {
 
 /**
  * Runs one case through the real Copilot turn handler: the case's role at the eval outlet, its
- * history as earlier chat, and the clock pinned to noon on its `today`.
+ * history as earlier chat, its open guess if it has one, and the clock pinned to noon on its `today`.
  */
 export function createCopilotTarget(deps: TargetDeps) {
   const { env } = deps;
@@ -125,6 +165,8 @@ export function createCopilotTarget(deps: TargetDeps) {
       history.append(chatId, earlier[i]!.content, earlier[i + 1]!.content);
     }
     const now = noonIn(input.today, env.outlet.timezone);
+    const senderId = env.telegramIdByRole[input.role];
+    const guesses = await guessStore(env, input, { id: chatId, senderId, now });
     let failure: string | undefined;
     const handleTurn = createTurnHandler({
       lookupUser: createUserLookup(env.db),
@@ -138,6 +180,7 @@ export function createCopilotTarget(deps: TargetDeps) {
         model: deps.model.modelId,
       }),
       history,
+      guesses,
       photos: new FakePhotoStore(),
       scorer: new RecordingScorer(),
       charts: new RecordingRenderer(),
@@ -148,7 +191,6 @@ export function createCopilotTarget(deps: TargetDeps) {
         if (message === "Copilot turn failed") failure = line;
       },
     });
-    const senderId = env.telegramIdByRole[input.role];
     const event: ChannelEvent = {
       type: "message",
       id: `${chatId}-message`,

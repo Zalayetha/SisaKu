@@ -21,6 +21,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 **Outlet scope**
 
 - `outlet_id` (and later `confirmed_by`) are removed from the tool schemas the LLM sees and filled in from the looked-up user on every call. The model cannot name another outlet.
+- The turn context names the user's outlet (added 2026-11-25, #69), so the model can tell when a user means another one; without it, it gave this outlet's numbers as the other's. The outlet's name therefore reaches the model provider, but not the trace labels. People's names still reach neither.
 - Each user belongs to exactly one outlet, owners included, for the MVP.
 
 **Who may talk to the Copilot**

@@ -335,6 +335,7 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     const labels = JSON.stringify(run!.start.trace);
     expect(labels).not.toContain("Budi");
     expect(labels).not.toContain("Staff A");
+    expect(labels).not.toContain("Warung Test"); // the outlet's name goes to the model only
   });
 
   it("gives the user's role and the outlet's local date to the model", async () => {
@@ -343,6 +344,15 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
     // 2026-03-03T03:00Z is 10:00 in Asia/Jakarta.
     expect(model.requests[0]!.instructions).toContain("Current date: 2026-03-03 (Asia/Jakarta)");
     expect(model.requests[0]!.instructions).toContain("role: manager");
+  });
+
+  it("names the user's own outlet, and no person or other outlet, to the model", async () => {
+    const model = new ScriptedModel([{ text: "ok" }]);
+    await handler(model, new RecordingObserver())(message("halo"));
+    const instructions = model.requests[0]!.instructions!;
+    expect(instructions).toContain("The user's outlet: Warung Test.");
+    expect(instructions).not.toContain("Other Outlet");
+    expect(instructions).not.toContain("Staff A");
   });
 
   it("gives the outlet's menu, names and ids, so the model needs no get_menu call", async () => {
@@ -471,6 +481,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
         onDelivered: expect.any(Function),
       });
       expect(model.lastToolResult()).toContain('"sent":true');
+      expect(model.lastToolResult()).toContain(
+        '"summary":{"metric":"waste_kg","total":1.84,"highest":{"date":"2026-02-11","value":1}}',
+      );
     });
 
     it("fills days without waste with zero, for one item, in rupiah", async () => {
@@ -489,6 +502,9 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(result).toMatchObject({
         chart: { title: "Limbah Rendang Sapi per hari (Rp), 10–12 Feb 2026" },
       });
+      expect(model.lastToolResult()).toContain(
+        '"summary":{"metric":"cost_idr","total":91000,"highest":{"date":"2026-02-12","value":65000}}',
+      );
     });
 
     it("compares one item's waste with its sales on the same days", async () => {
@@ -505,13 +521,22 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(result).toMatchObject({
         chart: { title: "Rendang Sapi: limbah vs terjual (porsi), 10–12 Feb 2026" },
       });
+      expect(model.lastToolResult()).toContain(
+        '"summary":{"waste_portions":7,"sold_portions":102}',
+      );
     });
 
     it("ranks waste by cause and by item, largest first", async () => {
-      await handler(
-        chartTurn({ kind: "waste_breakdown", ...range, metric: "waste_kg", by: "cause" }),
-        new RecordingObserver(),
-      )(message("penyebab terbesar?"));
+      const byCause = chartTurn({
+        kind: "waste_breakdown",
+        ...range,
+        metric: "waste_kg",
+        by: "cause",
+      });
+      await handler(byCause, new RecordingObserver())(message("penyebab terbesar?"));
+      expect(byCause.lastToolResult()).toContain(
+        '"summary":{"metric":"waste_kg","total":1.84,"top":[{"label":"Kelebihan masak","value":1.24},{"label":"Basi","value":0.6}]}',
+      );
       expect(charts.values()).toEqual([
         { label: "Kelebihan masak", value: 1.24 },
         { label: "Basi", value: 0.6 },
@@ -1175,6 +1200,49 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(
         await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[0]!.traceId)),
       ).toEqual([]);
+    });
+
+    it("refuses a correction when no guess is open, so saved waste is not logged twice", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+        { text: "Entri mana yang mau dikoreksi?" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const reply = asReply(await handle(message("nasi yang tadi salah, harusnya 2 porsi")));
+      expect(reply.text).toBe("Entri mana yang mau dikoreksi?");
+      expect(reply.actions).toBeUndefined();
+      expect(JSON.stringify(model.requests[1]!.chatHistory)).toContain(
+        "There is no open waste guess to correct",
+      );
+    });
+
+    it("refuses a correction of a guess that was already saved", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "spoilage" }),
+        { text: "ok" },
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 2 }], corrects_open_guess: true }),
+        { text: "Entri mana?" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      const card = await handle(message("nasi 3 porsi basi"));
+      await handle(tap(button(card, "Simpan")));
+      const reply = asReply(await handle(message("eh, 2 porsi")));
+      expect(reply.text).toBe("Entri mana?");
+      expect(reply.actions).toBeUndefined();
+    });
+
+    it("starts a new guess for a photo even when the model marks it as a correction", async () => {
+      const model = new ScriptedModel([
+        propose({
+          lines: [{ item_id: ids.nasi, portion_count: 2 }],
+          cause: "spoilage",
+          confidence: 0.9,
+          corrects_open_guess: true,
+        }),
+        { text: "ok" },
+      ]);
+      const card = asReply(await handler(model, new RecordingObserver())(photoMessage(), io));
+      expect(card.text).toContain("Nasi Putih: 2 porsi");
     });
 
     it("restores the replaced guess when its correction's card could not be delivered", async () => {

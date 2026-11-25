@@ -241,6 +241,7 @@ export function createTurnHandler(deps: TurnDeps) {
       observer: deps.observer,
       onObserverError: (error) => log("Lens observer failed", error),
       role: user.role,
+      outletName: user.outletName,
       today,
       timezone: user.timezone,
       menu: menu.map(({ id, name }) => ({ id, name })),

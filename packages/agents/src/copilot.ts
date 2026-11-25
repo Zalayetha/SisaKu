@@ -11,6 +11,7 @@ export type CopilotAgentOptions = {
   observer: AgentObserver;
   onObserverError?: (error: unknown) => void;
   role: CopilotRole;
+  outletName: string;
   today: string;
   timezone: string;
   menu?: readonly { id: string; name: string }[] | undefined;

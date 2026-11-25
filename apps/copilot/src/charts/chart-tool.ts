@@ -19,6 +19,7 @@ export const CHART_TOOL_NAME = "send_chart";
 /** Longest range one chart covers: the get_sales limit (ADR 0009). */
 export const MAX_CHART_DAYS = 92;
 const MAX_BARS = 10;
+const MAX_SUMMARY_BARS = 3;
 
 type WasteGroup = {
   item_id?: string;
@@ -70,13 +71,25 @@ export const chartInput = z.object({
   by: z.enum(["item", "cause"]).optional().describe("waste_breakdown only: group by"),
 });
 
+/** The chart's key numbers, computed from the data it draws, for the model's text reply. */
+type Summary =
+  | { metric: Metric; total: number; highest: { date: string; value: number } }
+  | { waste_portions: number; sold_portions: number }
+  | { metric: Metric; total: number; top: BreakdownBar[] };
+
 type Result =
-  | { sent: true; title: string; note: string }
+  | { sent: true; title: string; summary: Summary; note: string }
   | { sent: false; reason: "no_data" }
   | { sent: false; error: string };
 
 const fail = (error: string): Result => ({ sent: false, error });
 const NO_DATA: Result = { sent: false, reason: "no_data" };
+
+/** A sum without floating-point noise: grams for kg, whole Rupiah otherwise. */
+const sum = (values: number[], metric?: Metric) => {
+  const scale = metric === "cost_idr" ? 1 : 1000;
+  return Math.round(values.reduce((a, b) => a + b, 0) * scale) / scale;
+};
 
 /**
  * One chart per turn, drawn from kitchen-mcp data by fixed code: the model chooses what to
@@ -105,6 +118,7 @@ export function createChartTool(ctx: ChartContext) {
 
       let title: string;
       let spec: ChartSpec;
+      let summary: Summary;
       if (args.kind === "waste_trend") {
         if (days.length < 2) return NO_DATA;
         const { groups } = await ctx.queryWaste({
@@ -121,11 +135,16 @@ export function createChartTool(ctx: ChartContext) {
           .filter(Boolean)
           .join(", ");
         title = `Limbah${what ? ` ${what}` : ""} per hari (${unit}), ${range}`;
-        spec = trendSpec(
-          title,
+        const points = days.map((date) => ({ date, value: byDay.get(date) ?? 0 }));
+        spec = trendSpec(title, metric, points);
+        summary = {
           metric,
-          days.map((date) => ({ date, value: byDay.get(date) ?? 0 })),
-        );
+          total: sum(
+            points.map((p) => p.value),
+            metric,
+          ),
+          highest: points.reduce((best, p) => (p.value > best.value ? p : best)),
+        };
       } else if (args.kind === "waste_vs_sales") {
         if (!item) return fail("waste_vs_sales needs item_id");
         if (days.length < 2) return NO_DATA;
@@ -150,21 +169,33 @@ export function createChartTool(ctx: ChartContext) {
             portions: sold.get(date) ?? 0,
           })),
         ]);
+        summary = {
+          waste_portions: sum([...waste.values()]),
+          sold_portions: sum([...sold.values()]),
+        };
       } else {
         if (!args.by) return fail("waste_breakdown needs by: item or cause");
         const { groups } = await ctx.queryWaste({ filters, group_by: args.by });
-        const bars: BreakdownBar[] = groups
+        const ranked: BreakdownBar[] = groups
           .map((g) => ({
             label:
               args.by === "item" ? (g.item_name ?? "?") : g.cause ? CAUSE_LABELS[g.cause] : "?",
             value: g[metric],
           }))
           .filter((b) => b.value > 0)
-          .sort((a, b) => b.value - a.value)
-          .slice(0, MAX_BARS);
-        if (bars.length === 0) return NO_DATA;
+          .sort((a, b) => b.value - a.value);
+        if (ranked.length === 0) return NO_DATA;
+        const bars = ranked.slice(0, MAX_BARS);
         title = `Limbah per ${args.by === "item" ? "menu" : "penyebab"} (${unit}), ${range}`;
         spec = breakdownSpec(title, metric, bars);
+        summary = {
+          metric,
+          total: sum(
+            ranked.map((b) => b.value),
+            metric,
+          ),
+          top: bars.slice(0, MAX_SUMMARY_BARS),
+        };
       }
 
       try {
@@ -173,7 +204,12 @@ export function createChartTool(ctx: ChartContext) {
         ctx.log("Rendering a chart failed", error);
         return fail("the chart could not be drawn; answer in text only");
       }
-      return { sent: true, title, note: "The chart is sent after your reply." };
+      return {
+        sent: true,
+        title,
+        summary,
+        note: "The chart is sent after your reply. Give its key numbers from summary.",
+      };
     },
   });
 }

@@ -13,11 +13,11 @@ import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 import { CHART_TOOL_NAME, chartInput } from "../src/charts/chart-tool";
 import { PROPOSE_TOOL_NAME, proposeInput } from "../src/waste/propose-tool";
-import { EVAL_OUTLET, toolCallCases } from "./cases";
+import { EVAL_OUTLET, savedEntries, toolCallCases } from "./cases";
 import { hasPath, isObject } from "./metrics";
 
 const AREAS = {
-  waste_total: 5,
+  waste_total: 6,
   why_spike: 4,
   sales: 3,
   breakdown: 3,
@@ -25,7 +25,7 @@ const AREAS = {
   co2e: 2,
   prep_log: 1,
   waste_logging: 2,
-  correction: 2,
+  correction: 4,
   no_tool: 2,
 };
 
@@ -77,17 +77,19 @@ function withPath(input: unknown, path: string, sample: unknown): unknown {
 describe("tool-call eval cases", () => {
   const mock = generateMockData();
 
-  it("has 26 cases with unique ids, in the agreed mix of areas and languages", () => {
+  it("has 29 cases with unique ids, in the agreed mix of areas and languages", () => {
     expect(mock.outlets.map((o) => o.name)).toContain(EVAL_OUTLET);
-    expect(toolCallCases).toHaveLength(26);
-    expect(new Set(toolCallCases.map((c) => c.id)).size).toBe(26);
+    expect(toolCallCases).toHaveLength(29);
+    expect(new Set(toolCallCases.map((c) => c.id)).size).toBe(29);
     const areas: Record<string, number> = {};
     for (const c of toolCallCases) areas[c.metadata.area] = (areas[c.metadata.area] ?? 0) + 1;
     expect(areas).toEqual(AREAS);
-    expect(toolCallCases.filter((c) => c.metadata.language === "id")).toHaveLength(16);
+    expect(toolCallCases.filter((c) => c.metadata.language === "id")).toHaveLength(18);
     for (const c of toolCallCases) {
       expect(["staff", "manager", "owner"]).toContain(c.input.role);
-      expect(c.input.today).toBe(mock.endDate);
+      // Only the saved-entry corrections run later, each on the day of its own entry.
+      const days = [mock.endDate, ...savedEntries.map((e) => e.day)];
+      expect(days, c.id).toContain(c.input.today);
       expect(c.input.message.trim()).not.toBe("");
     }
   });
@@ -101,6 +103,21 @@ describe("tool-call eval cases", () => {
       });
     }
     expect(toolCallCases.some((c) => c.input.history)).toBe(true);
+  });
+
+  it("gives each saved entry its own day, weeks from the mock data and each other", () => {
+    const days = [mock.endDate, ...savedEntries.map((e) => e.day)].map((d) => Date.parse(d));
+    for (let i = 1; i < days.length; i++) {
+      expect((days[i]! - days[i - 1]!) / 86_400_000).toBeGreaterThanOrEqual(28);
+    }
+    for (const entry of savedEntries) {
+      expect(toolCallCases.filter((c) => c.input.today === entry.day)).toHaveLength(1);
+      const menuItem = mock.menuItems.find((m) => m.id === entry.itemId)!;
+      expect(Number(entry.weightKg)).toBeCloseTo(
+        entry.portionCount * Number(menuItem.portionWeightKg),
+        3,
+      );
+    }
   });
 
   it("expects only tools the Copilot is offered, or no tool", () => {

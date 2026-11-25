@@ -159,6 +159,9 @@ export const getSalesOutput = z.object({
   rows: z.array(
     z.object({ date: z.string(), item_id: uuid, item_name: z.string(), qty_sold: z.number() }),
   ),
+  totals: z
+    .array(z.object({ item_id: uuid, item_name: z.string(), qty_sold: z.number() }))
+    .describe("Portions sold per item over the whole range"),
 });
 
 export const getMenuOutput = z.object({ outlet_id: uuid, items: z.array(menuItem) });

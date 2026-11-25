@@ -19,11 +19,13 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 
 - The runner wipes, migrates and seeds the database at `TEST_DATABASE_URL` with `generateMockData()`, and refuses any database whose name does not end in `_test`. The eval outlet is Warung Rina. The mock data has a manager and a staff member per outlet; the runner adds an owner (`eval-owner`).
 - Each case is sent as the user with its role, with its `history` loaded as earlier chat, and the clock pinned to noon on its `today` in the outlet's time zone. A guess is never confirmed, so nothing is saved; `update_entry` is the only tool that writes, and only to this database.
+- Since 2026-11-24 (#69): the runner also loads `packages/db/seed/emission_factors.csv`, since the mock data leaves emission factors alone and every CO₂e answer was 0. Each saved-entry correction case has a real saved entry (`savedEntries` in `cases.ts`) on its own day, with the case's `today` on that day. The days are weeks after the mock data ends and weeks apart, because a question about "this week" may read days after its own: on 2026-11-25 a run with the entries on 2–4 April had one `why-rendang-this-week` repeat count them. The message of `correct-ayam-today` changed the same day from "earlier" to "earlier today": it named no day, so a wider `list_entries` search was a fair answer (2/3 twice). Its results from before are not comparable. With `--repeat`, the repeats of such a case share one entry. A case may give `openGuess`: a waste guess whose card is already shown, put in the turn handler's guess store.
 
 **Scored by code, not a judge**
 
 - Tool-call correctness: the first tool call must be the expected tool, and `expected.args` must match its arguments as a subset (objects may have extra keys; arrays match element by element and have the same length). `item("<name>")` in a case is the id from the seeded mock data. `tool: null` passes only with no tool call.
 - Since 2026-11-25 (#70): a case may list `expected.absent`, arguments the first call must leave out or send as null (dotted paths such as `filters.cause`), because an invented value there changes the answer or is refused. Other extra arguments still pass. Scores from before this change are more generous: at 21:24 on 2026-11-24 `breakdown-cause-march` passed while asking only for `over_prep` and an item that does not exist.
+- Since 2026-11-25 (#69): each reply the model wrote is also checked for the language of its question (rule 3), by counting common words (`language.ts`). It is reported per question language next to the areas and is not part of the bar: the first run that measured it (86/87 tool calls) answered 6 of 30 English questions in English. Waste cards (fixed Indonesian text), failed turns and replies too short to tell are not counted.
 - Every check is deterministic, so a given transcript always gets the same verdict and a 100% bar is never decided by a judge's error rate. An LLM judge waits for report faithfulness (#64), where claims need one.
 - Bars: tool-call correctness 90%, safety (#61) 100%. Below a bar the run exits 1; a configuration error exits 2; selecting no cases is an error.
 
@@ -52,7 +54,7 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 ## Consequences
 
 - A prompt change can be measured before it ships: run `pnpm eval --repeat 3` before and after, and compare scores for the two instruction versions.
-- Each run costs model calls (26 turns for tool-call correctness), and model output varies, so a single run is noisy; repeats are for deliberate prompt work.
+- Each run costs model calls (29 turns for tool-call correctness since #69, 26 before), and model output varies, so a single run is noisy; repeats are for deliberate prompt work.
 - Until #62, a regression shows only when someone runs the eval.
 - The eval exercises only text messages; photo guesses and confidence calibration are not covered.
 - Turn handler tests and evals share their in-process MCP servers and fakes (`src/testing/mcp-servers.ts` and `src/testing/fakes.ts`).

@@ -69,6 +69,19 @@ describe.skipIf(!testDbUrl)("kitchen tools", () => {
         item_id: ids.rendang,
       });
       expect(r.rows.map((x) => x.qty_sold)).toEqual([41, 42, 43]);
+      expect(r.totals).toEqual([
+        { item_id: ids.rendang, item_name: "Rendang Sapi", qty_sold: 41 + 42 + 43 },
+      ]);
+    });
+
+    it("returns each item's total over the range, ordered by name, and none without sales", async () => {
+      const r = await getSales(db, { outlet_id: A, from: "2026-03-01", to: "2026-03-02" });
+      expect(r.totals).toEqual([
+        { item_id: ids.nasi, item_name: "Nasi Putih", qty_sold: 101 + 102 },
+        { item_id: ids.rendang, item_name: "Rendang Sapi", qty_sold: 41 + 42 },
+      ]);
+      const none = await getSales(db, { outlet_id: A, from: "2025-01-01", to: "2025-01-02" });
+      expect(none).toMatchObject({ rows: [], totals: [] });
     });
 
     it("rejects an unknown outlet, another outlet's item and ranges over 92 days", async () => {
