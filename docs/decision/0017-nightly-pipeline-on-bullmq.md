@@ -27,6 +27,7 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 
 - A step is a name, an output schema and a run function, with an optional fallback and time limit. The run function gets the run, the validated outputs of earlier steps, the MCP servers, the trace options and an abort signal. Queue code does not change when a stub is replaced.
 - A step that uses its fallback is degraded and the run still succeeds. Without a fallback the run stops as failed. (The retries and the fallback are built in #79.)
+- Ingest (#78) reads the menu, sales, prep log and waste of the business date through kitchen-mcp, without an LLM, and saves totals and gaps, not the rows: later steps read the details through the MCP tools. Gaps (`no_sales`, `no_prep_log`, `no_waste_logged`, `sold_not_prepped` per item) never fail the step; a failed read does. A record of zero portions is not a missing record, and a missing prep log is reported once instead of for every item sold.
 - The Report step writes the brief and never sends it. Sending is a separate job (#39).
 
 **Boundaries**

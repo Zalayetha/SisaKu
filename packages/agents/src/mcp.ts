@@ -92,8 +92,8 @@ export function connectMcpServers(env: NodeJS.ProcessEnv = process.env) {
 }
 
 /**
- * Calls an MCP tool from fixed code (not the model) and returns its JSON result. Used for
- * tools the model must never call itself, such as `log_waste` (ADR 0014). Throws on a tool error.
+ * Calls an MCP tool from fixed code (not the model) and returns its JSON result: reads, and tools
+ * the model must never call itself, such as `log_waste` (ADR 0014). Throws on a tool error.
  */
 export async function callMcpTool<T = unknown>(
   servers: readonly McpServer[],

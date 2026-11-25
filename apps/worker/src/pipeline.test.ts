@@ -118,7 +118,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       .toBe(status);
   }
 
-  it("takes a manual run through all five stub steps", async () => {
+  it("takes a manual run through all five steps", async () => {
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
     startWorker();
 
@@ -135,7 +135,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       finishedAt: expect.any(Date),
     });
     expect(jobs.map((j) => [j.step, j.status, j.attempts, j.output])).toEqual([
-      ["ingest", "succeeded", 1, { stub: true }],
+      ["ingest", "succeeded", 1, expect.objectContaining({ gaps: [] })],
       ["analyze", "succeeded", 1, { stub: true }],
       ["forecast", "succeeded", 1, { stub: true }],
       ["recommend", "succeeded", 1, { stub: true }],
