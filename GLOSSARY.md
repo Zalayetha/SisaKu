@@ -40,6 +40,10 @@ _Avoid_: Default, backup
 The outlet-local day a pipeline run covers. It is fixed when the run is created, and the run forecasts the day after it.
 _Avoid_: Run date, today
 
+**Missed night**:
+A business date whose 22:00 passed without a scheduled pipeline run. It is caught up until 06:00 outlet time and skipped after that.
+_Avoid_: Backlog, replay
+
 **Gap**:
 Something missing from a business date's data, found by Ingest: no sales, no prep log, no waste logged, or an item sold but not prepped. It is reported and never fails the pipeline run.
 _Avoid_: Error, anomaly

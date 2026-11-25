@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { agentRuns } from "@sisaku/db";
+import { agentRuns, outlets } from "@sisaku/db";
+import { Queue } from "bullmq";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
+import { PIPELINE_QUEUE, queueOptions } from "./queue";
 import { startLensServer } from "./testing/lens-server";
 import { testRedis, testRedisUrl } from "./testing/redis";
 
@@ -15,14 +17,26 @@ const PRIVATE = { MCP_SSRF_PROTECTION: "disabled" };
 const NO_MCP = /Version negotiation probe failed: fetch failed/;
 const DEAD_REDIS = "redis://127.0.0.1:1";
 
+/** A timezone in which it is now `hour` o'clock, whenever the test runs. */
+function zoneWhereItIs(hour: number) {
+  const ahead = ((hour - new Date().getUTCHours() + 36) % 24) - 12;
+  // "Etc/GMT-7" is 7 hours ahead of UTC.
+  return ahead === 0 ? "Etc/GMT" : `Etc/GMT${ahead > 0 ? "-" : "+"}${Math.abs(ahead)}`;
+}
+
 describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_000 }, () => {
   let db: Awaited<ReturnType<typeof setupTestDb>>["db"];
   let pool: Awaited<ReturnType<typeof setupTestDb>>["pool"];
   let redis: ReturnType<typeof testRedis>;
   let settings: Record<string, string>;
+  // Read once: the hour may turn while the tests run.
+  const DAYTIME = zoneWhereItIs(12);
+  const LATE = zoneWhereItIs(23);
 
   beforeAll(async () => {
     ({ db, pool } = await setupTestDb());
+    // In the day, so that a starting worker has no missed night to catch up.
+    await db.update(outlets).set({ timezone: DAYTIME });
     redis = testRedis();
     settings = {
       PATH: process.env.PATH!,
@@ -75,6 +89,30 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
       .toBe("succeeded");
     worker.child.kill("SIGTERM");
     expect(await worker.exit).toBe(0);
+  });
+
+  it("the worker schedules every outlet, and catches up a night that was just missed", async () => {
+    await db.update(outlets).set({ timezone: LATE }).where(eq(outlets.id, ids.outletB));
+    const queue = new Queue(PIPELINE_QUEUE, queueOptions(redis.redis));
+    const scheduledRuns = () =>
+      db.select().from(agentRuns).where(eq(agentRuns.trigger, "schedule"));
+    try {
+      const worker = start("src/main.ts", [], settings);
+      await expect
+        .poll(async () => (await scheduledRuns())[0]?.status ?? worker.output(), {
+          timeout: 30_000,
+        })
+        .toBe("succeeded");
+      expect((await scheduledRuns()).map((run) => run.outletId)).toEqual([ids.outletB]);
+      expect((await queue.getJobSchedulers()).map(({ tz }) => tz).sort()).toEqual(
+        [LATE, DAYTIME].sort(),
+      );
+      worker.child.kill("SIGTERM");
+      expect(await worker.exit).toBe(0);
+    } finally {
+      await db.update(outlets).set({ timezone: DAYTIME });
+      await queue.close();
+    }
   });
 
   it("the worker sends one trace per run to Lens, and flushes it on SIGTERM", async () => {

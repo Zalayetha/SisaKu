@@ -1,5 +1,7 @@
 import { connectMcpServers, createLens } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
+import { createPipelineRuns } from "./runs";
+import { createPipelineSchedule } from "./schedule";
 import { assertPostgres, assertRedis, pipelineRedis } from "./settings";
 import { createPipelineLens } from "./trace";
 import { createPipelineWorker } from "./worker";
@@ -14,10 +16,14 @@ await assertPostgres(db);
 await assertRedis(redis);
 const mcp = await connectMcpServers();
 
+const runs = createPipelineRuns({ db, redis });
+const schedule = createPipelineSchedule({ db, redis, runs });
+await schedule.sync();
 const worker = createPipelineWorker({
   db,
   servers: mcp.servers,
   redis,
+  schedule,
   lens: createPipelineLens(lens),
 });
 console.error("Nightly pipeline worker is waiting for runs.");
@@ -30,7 +36,7 @@ async function shutdown() {
   await worker.stop();
   // A step left behind may still hold a connection; its worker must exit all the same.
   setTimeout(() => process.exit(0), CLOSE_WAIT_MS);
-  await Promise.allSettled([mcp.close(), lens.close(), pool.end()]);
+  await Promise.allSettled([schedule.close(), runs.close(), mcp.close(), lens.close(), pool.end()]);
   process.exit(0);
 }
 process.once("SIGTERM", () => void shutdown());

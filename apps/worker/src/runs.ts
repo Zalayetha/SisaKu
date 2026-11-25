@@ -49,41 +49,59 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
     return found[0]!.id;
   }
 
+  /** Holds the outlet, so its runs are created one at a time. False if it does not exist. */
+  async function lockOutlet(tx: Tx, outletId: string): Promise<boolean> {
+    const found = await tx
+      .select({ id: outlets.id })
+      .from(outlets)
+      .where(eq(outlets.id, outletId))
+      // Without blocking rows that only reference it.
+      .for("no key update");
+    return found.length > 0;
+  }
+
+  async function create(tx: Tx, trigger: "manual" | "schedule", outletId: string, date: string) {
+    const [created] = await tx
+      .insert(agentRuns)
+      .values({
+        agent: NIGHTLY_PIPELINE_AGENT,
+        trigger,
+        outletId,
+        businessDate: date,
+        traceId: randomBytes(16).toString("hex"),
+      })
+      .returning({ id: agentRuns.id });
+    const runId = created!.id;
+    await tx.insert(pipelineJobs).values(PIPELINE_STEPS.map((step) => ({ runId, step })));
+    return runId;
+  }
+
+  function ofBusinessDate(outletId: string, date: string) {
+    return and(
+      eq(agentRuns.agent, NIGHTLY_PIPELINE_AGENT),
+      eq(agentRuns.outletId, outletId),
+      eq(agentRuns.businessDate, date),
+    );
+  }
+
+  async function findScheduled(from: Db | Tx, outletId: string, date: string) {
+    const [run] = await from
+      .select({ id: agentRuns.id, status: agentRuns.status })
+      .from(agentRuns)
+      .where(and(ofBusinessDate(outletId, date), eq(agentRuns.trigger, "schedule")));
+    return run;
+  }
+
   /** The run in progress for the outlet and date, or a new manual one. */
   async function findOrCreate(outletId: string, date: string) {
     return db.transaction(async (tx) => {
-      // One creation at a time per outlet, without blocking rows that only reference it.
-      await tx
-        .select({ id: outlets.id })
-        .from(outlets)
-        .where(eq(outlets.id, outletId))
-        .for("no key update");
+      await lockOutlet(tx, outletId);
       const [inProgress] = await tx
         .select({ id: agentRuns.id })
         .from(agentRuns)
-        .where(
-          and(
-            eq(agentRuns.agent, NIGHTLY_PIPELINE_AGENT),
-            eq(agentRuns.outletId, outletId),
-            eq(agentRuns.businessDate, date),
-            eq(agentRuns.status, "running"),
-          ),
-        );
+        .where(and(ofBusinessDate(outletId, date), eq(agentRuns.status, "running")));
       if (inProgress) return { id: inProgress.id, created: false };
-
-      const [created] = await tx
-        .insert(agentRuns)
-        .values({
-          agent: NIGHTLY_PIPELINE_AGENT,
-          trigger: "manual",
-          outletId,
-          businessDate: date,
-          traceId: randomBytes(16).toString("hex"),
-        })
-        .returning({ id: agentRuns.id });
-      const runId = created!.id;
-      await tx.insert(pipelineJobs).values(PIPELINE_STEPS.map((step) => ({ runId, step })));
-      return { id: runId, created: true };
+      return { id: await create(tx, "manual", outletId, date), created: true };
     });
   }
 
@@ -114,6 +132,29 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
       }
       await queue.add(run.id);
       return { runId: run.id };
+    },
+    /** The scheduled run for the outlet and date, if there is one. */
+    findScheduled: (outletId: string, date: string) => findScheduled(db, outletId, date),
+    /**
+     * Starts the scheduled run for the outlet and date, once: repeating it changes nothing, also when
+     * the run failed. It only queues a run again whose jobs are not in Redis, and records a failure
+     * that did not reach Postgres. False if the outlet no longer exists.
+     */
+    async startScheduled({ outletId, date }: { outletId: string; date: string }): Promise<boolean> {
+      const run = await db.transaction(async (tx) => {
+        if (!(await lockOutlet(tx, outletId))) return;
+        const existing = await findScheduled(tx, outletId, date);
+        return existing ?? { id: await create(tx, "schedule", outletId, date), status: "running" };
+      });
+      if (!run) return false;
+      if (run.status === "running") {
+        const state = await queue.state(run.id);
+        if (state.type === "missing") await queue.add(run.id);
+        if (state.type === "failed") {
+          await recordFailure(db, { runId: run.id, step: state.step }, state.reason);
+        }
+      }
+      return true;
     },
     close: () => queue.close(),
   };

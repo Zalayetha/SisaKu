@@ -15,7 +15,7 @@ const RETRY_DELAY_MS = 30_000;
 /** Where the queue lives. `prefix` keeps tests apart; production uses BullMQ's default. */
 export type PipelineRedis = { url: string; prefix?: string };
 
-/** Everything a job carries: the rest is read from Postgres. */
+/** Everything a step's job carries: the rest is read from Postgres. */
 export const pipelineJobData = z.object({ runId: z.uuid(), step: z.enum(PIPELINE_STEPS) });
 export type PipelineJobData = z.infer<typeof pipelineJobData>;
 
@@ -32,6 +32,11 @@ function jobId(runId: string, step: PipelineStep) {
   return `${runId}-${step}`;
 }
 
+export const finishedJobOptions = {
+  removeOnComplete: { age: KEEP_FINISHED_SECONDS },
+  removeOnFail: { age: KEEP_FINISHED_SECONDS },
+};
+
 /** The run as nested jobs: a step waits for its child, the step before it. */
 function runFlow(runId: string, retryDelayMs: number): FlowJob {
   let flow: FlowJob | undefined;
@@ -44,8 +49,7 @@ function runFlow(runId: string, retryDelayMs: number): FlowJob {
         jobId: jobId(runId, step),
         attempts: STEP_ATTEMPTS,
         backoff: { type: "exponential", delay: retryDelayMs },
-        removeOnComplete: { age: KEEP_FINISHED_SECONDS },
-        removeOnFail: { age: KEEP_FINISHED_SECONDS },
+        ...finishedJobOptions,
       },
       ...(flow ? { children: [flow] } : {}),
     };
