@@ -1,6 +1,7 @@
 import { connectMcpServers, createLens } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
 import { assertPostgres, assertRedis, pipelineRedis } from "./settings";
+import { createPipelineLens } from "./trace";
 import { createPipelineWorker } from "./worker";
 
 // Fails fast (ADR 0017): every setting, and every connection but Lens, is checked before a job is
@@ -13,7 +14,12 @@ await assertPostgres(db);
 await assertRedis(redis);
 const mcp = await connectMcpServers();
 
-const worker = createPipelineWorker({ db, servers: mcp.servers, redis });
+const worker = createPipelineWorker({
+  db,
+  servers: mcp.servers,
+  redis,
+  lens: createPipelineLens(lens),
+});
 console.error("Nightly pipeline worker is waiting for runs.");
 
 const CLOSE_WAIT_MS = 5_000;

@@ -4,6 +4,7 @@ import { agentRuns } from "@sisaku/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
+import { startLensServer } from "./testing/lens-server";
 import { testRedis, testRedisUrl } from "./testing/redis";
 
 // The worker and the pipeline:run command as real processes, without the repo's .env.
@@ -74,6 +75,34 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
       .toBe("succeeded");
     worker.child.kill("SIGTERM");
     expect(await worker.exit).toBe(0);
+  });
+
+  it("the worker sends one trace per run to Lens, and flushes it on SIGTERM", async () => {
+    const lens = await startLensServer();
+    try {
+      const { output } = await command(["--outlet", "Warung Test", "--date", "2026-03-02"]);
+      const runId = /[0-9a-f]{8}-[0-9a-f-]{27}/.exec(output)![0];
+      const worker = start("src/main.ts", [], { ...settings, ...lens.env });
+      const readRun = async () =>
+        (await db.select().from(agentRuns).where(eq(agentRuns.id, runId)))[0]!;
+      await expect
+        .poll(async () => (await readRun()).status, { timeout: 30_000 })
+        .toBe("succeeded");
+      // At once, so the spans are still waiting for the next batch.
+      worker.child.kill("SIGTERM");
+      expect(await worker.exit).toBe(0);
+
+      const spans = lens.spans();
+      expect(spans.map((span) => span.name).sort()).toEqual(
+        ["analyze", "forecast", "ingest", "recommend", "report"].map((s) => `pipeline.${s}`),
+      );
+      const { traceId } = await readRun();
+      expect(new Set(spans.map((span) => span.traceId))).toEqual(new Set([traceId]));
+      expect(new Set(lens.serviceNames())).toEqual(new Set(["sisaku-pipeline"]));
+      expect(lens.raw()).not.toMatch(/Warung|Rendang|Nasi/);
+    } finally {
+      await lens.close();
+    }
   });
 
   it.each([

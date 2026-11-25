@@ -1,4 +1,4 @@
-import type { AgentTraceOptions } from "@anvia/core/observability";
+import type { AgentObservabilityOptions, AgentTraceOptions } from "@anvia/core/observability";
 import type { McpServer } from "@anvia/core/mcp";
 import type { PipelineStep } from "@sisaku/db";
 import * as z from "zod";
@@ -23,8 +23,9 @@ export type StepContext = {
   /** The outputs of the steps before this one, validated against their schemas. */
   readonly outputs: Readonly<Partial<Record<PipelineStep, unknown>>>;
   readonly servers: readonly McpServer[];
-  /** Passed to any agent the step runs, so the whole run is one Lens trace. */
+  /** Passed to any agent the step runs, with `observability`: nests it in the run's Lens trace. */
   readonly trace: AgentTraceOptions;
+  readonly observability: AgentObservabilityOptions;
   /** Aborted when the step's time limit is up. */
   readonly signal: AbortSignal;
   /**
