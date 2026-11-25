@@ -1,6 +1,7 @@
 import { connectMcpServers, createLens } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
 import { assertPostgres, assertRedis, pipelineRedis } from "./settings";
+import { createPipelineLens } from "./trace";
 import { createPipelineWorker } from "./worker";
 
 // Fails fast (ADR 0017): every setting, and every connection but Lens, is checked before a job is
@@ -17,11 +18,7 @@ const worker = createPipelineWorker({
   db,
   servers: mcp.servers,
   redis,
-  // "safe": no prompt, reply or tool bodies in Lens (ADR 0012).
-  lens: {
-    pipeline: lens.pipelineObserver({ captureMode: "safe" }),
-    agent: lens.observer({ captureMode: "safe" }),
-  },
+  lens: createPipelineLens(lens),
 });
 console.error("Nightly pipeline worker is waiting for runs.");
 

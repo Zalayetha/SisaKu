@@ -1,5 +1,6 @@
 import {
   Agent,
+  createTool,
   Usage,
   type CompletionModel,
   type CompletionRequest,
@@ -12,6 +13,7 @@ import type {
   PipelineRunErrorArgs,
   PipelineRunStartArgs,
 } from "@anvia/core/pipeline";
+import { createLens } from "@sisaku/agents";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
 import { PIPELINE_STEPS } from "@sisaku/db";
 import { sql } from "drizzle-orm";
@@ -19,6 +21,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import * as z from "zod";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import {
+  createPipelineLens,
   createPipelineRuns,
   createPipelineWorker,
   DEFAULT_STEPS,
@@ -26,6 +29,7 @@ import {
   type StepContext,
   type StepDefinition,
 } from "./index";
+import { startLensServer } from "./testing/lens-server";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import {
   deleteRuns,
@@ -180,7 +184,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline traces", { timeout: 15_00
     expect(run.costUsd).toBeNull();
   });
 
-  it("gives every retry its own span in the same trace, also after a worker restart", async () => {
+  it("gives every attempt its own span in the same trace, also after a worker restart", async () => {
     const first = recordingLens();
     const second = recordingLens();
     let starts = 0;
@@ -324,25 +328,98 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline traces", { timeout: 15_00
     expect(Date.now() - stopping).toBeLessThan(2_000);
   });
 
-  it("keeps what a failed query would have saved out of Lens, but not out of the job", async () => {
-    const { spans, lens } = recordingLens();
-    const analyze = step("analyze", async ({ onSave, run }) => {
+  it("sends the real Lens no prompt, reply, tool content or saved values, agents included", async () => {
+    const server = await startLensServer();
+    const client = createLens("sisaku-pipeline", server.env);
+    const secret = "Rendang Sapi";
+    const failingQuery = () => db.execute(sql`insert into missing values (${secret})`);
+    const lookUp = createTool({
+      name: "look_up",
+      description: "Looks up an item.",
+      inputSchema: z.object({ item: z.string() }),
+      handler: async () => {
+        await failingQuery();
+        return "never";
+      },
+    });
+    let requests = 0;
+    const model: CompletionModel = {
+      ...fakeModel,
+      capabilities: { ...fakeModel.capabilities, tools: true },
+      completion: async (): Promise<CompletionResponse> => ({
+        usage: Usage.empty(),
+        rawResponse: {},
+        ...(++requests % 2 === 1
+          ? {
+              choice: [
+                {
+                  type: "tool-call",
+                  toolCallId: `call-${requests}`,
+                  toolName: "look_up",
+                  input: { item: secret },
+                },
+              ],
+              finishReason: "tool-calls",
+            }
+          : { choice: [{ type: "text", text: secret }], finishReason: "stop" }),
+      }),
+    };
+    const analyze = step("analyze", async ({ trace, observability, onSave }) => {
+      const agent = new Agent({ id: "analyst", model, tools: [lookUp], observability });
+      await agent.generate({ messages: [{ role: "user", content: secret }], trace });
       onSave(async (tx) => {
-        await tx.execute(sql`insert into missing values (${"Rendang Sapi"}, ${run.id})`);
+        await tx.execute(sql`insert into missing values (${secret})`);
       });
       return { ok: true };
     });
-    const { runId } = await start();
-    startWorker(lens, [analyze]);
-    await expectStatus(runId, "failed");
-    expect((await readRun(runId)).job("analyze").error).toContain("Rendang Sapi");
-    const analyzed = spans.filter((span) => span.start.runMetadata?.step === "analyze");
-    await expect.poll(() => analyzed.map((span) => span.outcome)).toEqual(Array(4).fill("failed"));
-    for (const { error } of analyzed) {
-      expect((error as Error).message).toMatch(/^Failed query/);
-      expect((error as Error).message + (error as Error).stack).not.toContain("Rendang");
-      expect((error as Error).cause).toBeUndefined();
+    try {
+      const { runId } = await start();
+      startWorker(createPipelineLens(client), [analyze]);
+      await expectStatus(runId, "failed");
+      await workers.splice(0)[0]!.stop();
+      await client.close();
+
+      const { run, job } = await readRun(runId);
+      expect(job("analyze").error).toContain(secret);
+      const spans = server.spans();
+      expect(new Set(spans.map((span) => span.traceId))).toEqual(new Set([run.traceId]));
+      const attempts = spans.filter((span) => span.name === "pipeline.analyze");
+      expect(attempts).toHaveLength(4);
+      const tools = spans.filter((span) => span.name === "tool.look_up");
+      expect(tools).toHaveLength(4);
+      const agents = spans.filter((span) => span.name.startsWith("agent"));
+      expect(agents.map((span) => span.parentSpanId).sort()).toEqual(
+        attempts.map((span) => span.spanId).sort(),
+      );
+      expect(server.raw()).toContain("Failed query (see the job)");
+      expect(server.raw()).not.toContain("Rendang");
+    } finally {
+      await client.close();
+      await server.close();
     }
+  });
+
+  it("does not mark the attempt of a worker thought dead as completed", async () => {
+    const first = recordingLens();
+    const second = recordingLens();
+    let starts = 0;
+    let finishLate = () => {};
+    const analyze = step("analyze", async () => {
+      if (++starts === 1) await new Promise<void>((resolve) => (finishLate = resolve));
+      return { ok: true };
+    });
+    const { runId } = await start();
+    // The first worker keeps its step but loses the job, as after a long pause.
+    startWorker(first.lens, [analyze]);
+    await expect.poll(() => starts).toBe(1);
+    await redis.clear();
+    await start();
+    startWorker(second.lens, [analyze]);
+    await expectStatus(runId, "succeeded");
+    finishLate();
+    const late = first.spans.find((span) => span.start.runMetadata?.step === "analyze")!;
+    await expect.poll(() => late.outcome).toBe("failed");
+    expect((late.error as Error).message).toMatch(/Attempt 1 of analyze .* is not current/);
   });
 
   it("runs on when Lens fails inside an agent a step runs", async () => {

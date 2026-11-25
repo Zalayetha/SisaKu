@@ -164,7 +164,7 @@ Four core evals run in CI on every push.
 **Observability (Anvia Lens)**
 
 - One trace per pipeline run or chat turn, with a span per LLM call and tool call, and per step attempt of a pipeline run
-- Each span logs model, tokens, cost, latency, tool arguments and result, and errors
+- LLM spans log model, tokens, cost, latency and errors, tool spans their name, latency and errors, and step spans their labels, latency and errors. `safe` capture keeps prompts, replies, tool arguments and results out of Lens (ADR 0012)
 - User corrections and rejected recommendations are recorded as feedback on the trace
 - Bull Board shows job status, retries and failures
 

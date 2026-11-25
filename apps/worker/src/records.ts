@@ -96,7 +96,6 @@ export async function saveStep(
   const { runId, step, jobId } = attempt;
   await db.transaction(async (tx) => {
     const job = await lockStep(tx, attempt);
-    if (job && isDone(job)) return;
     if (!isCurrent(job, attempt) || job?.status !== "running") {
       throw new Error(`Attempt ${attempt.number} of ${step} in run ${runId} is not current`);
     }

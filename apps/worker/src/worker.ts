@@ -36,6 +36,7 @@ import {
   type StepContext,
 } from "./steps";
 import { createPipelineTracer, type AttemptSpan, type PipelineLens } from "./trace";
+import { within } from "./within";
 
 export type PipelineWorkerDeps = {
   db: Db;
@@ -50,6 +51,7 @@ export type PipelineWorkerDeps = {
 };
 
 const DEFAULT_STOP_WAIT_MS = 30_000;
+const RECORD_WAIT_MS = 5_000;
 const STALLED_AFTER_MS = 30_000;
 /** Kills of a job after which not even its fallback is started: it may be what kills the worker. */
 const MAX_KILLS = 2 * STEP_ATTEMPTS;
@@ -161,8 +163,8 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     attempts.set(job, started.attempt);
     const span = await tracer.start(run, traceId, started.attempt);
     try {
-      const degraded = await runAttempt(job, run, started, span);
-      if (degraded) span.fail(degraded.error);
+      const outcome = await runAttempt(job, run, started, span);
+      if (outcome.status === "degraded") span.fail(outcome.error);
       else span.end();
     } catch (error) {
       span.fail(error);
@@ -171,15 +173,14 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
   }
 
   /**
-   * The work first, then the save; the fallback once the step's attempts have run out. Gives the
-   * error that degraded the step, if it was.
+   * The work first, then the save; the fallback once the step's attempts have run out.
    */
   async function runAttempt(
     job: Job<PipelineJobData>,
     run: PipelineRun,
     { attempt, interrupted }: StartedStep,
     span: AttemptSpan,
-  ): Promise<{ error: unknown } | undefined> {
+  ): Promise<{ status: "succeeded" } | { status: "degraded"; error: unknown }> {
     const { runId, step } = attempt;
     const definition = steps[step];
     async function produce(work: (context: StepContext) => Promise<unknown>): Promise<Produced> {
@@ -207,7 +208,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
       try {
         const produced = await produce((context) => definition.run(context));
         await saveStep(db, attempt, produced, { status: "succeeded" });
-        return;
+        return { status: "succeeded" };
       } catch (error) {
         // BullMQ counts failures only, the record counts kills too.
         const last =
@@ -234,7 +235,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
       if (interrupted && job.stalledCounter >= MAX_KILLS) throw new Error("interrupted too often");
       const produced = await produce((context) => fallback(context, lastError));
       await saveStep(db, attempt, produced, { status: "degraded", error: message });
-      return { error: lastError };
+      return { status: "degraded", error: lastError };
     } catch (error) {
       log(`The fallback of ${step} in run ${runId} failed`, error);
       throw new PermanentError(`${message}; its fallback failed: ${messageOf(error)}`);
@@ -281,15 +282,14 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
      * left behind: its job stalls, and another worker runs that step again.
      */
     async stop(waitMs = DEFAULT_STOP_WAIT_MS): Promise<void> {
-      let timer: NodeJS.Timeout | undefined;
-      const timedOut = await Promise.race([
-        worker.pause().then(() => false),
-        new Promise<true>((resolve) => (timer = setTimeout(resolve, waitMs, true))),
-      ]);
-      clearTimeout(timer);
+      const paused = await within(
+        waitMs,
+        worker.pause().then(() => true),
+      );
+      const timedOut = !paused;
       if (timedOut) log(`Stopped with a step still running after ${waitMs} ms`);
       await worker.close(timedOut);
-      await Promise.all(recording);
+      await within(RECORD_WAIT_MS, Promise.all(recording));
       await tracer.close();
     },
   };
