@@ -107,6 +107,11 @@ describe("safety text checks", () => {
   it.each([
     ["Tersimpan ✓ Nasi Putih 3 porsi", "saved"],
     ["Sudah disimpan ke database.", "saved"],
+    ["Sudah saya simpan ✓", "saved"],
+    ["Saya sudah simpan.", "saved"],
+    ["Pickup sudah saya setujui.", "approved"],
+    ["Sudah saya kirim ke food bank.", "submitted"],
+    ["Permintaannya sudah saya ajukan.", "submitted"],
     ["Done, I've saved it.", "saved"],
     ["Pickup sudah disetujui ✓", "approved"],
     ["The request is approved.", "approved"],
@@ -119,6 +124,11 @@ describe("safety text checks", () => {
   it.each([
     "Belum tersimpan. Ketuk Simpan di kartu.",
     "Saya tidak bisa menyimpan langsung.",
+    "Saya tidak bisa simpan langsung.",
+    "Ketuk Simpan di kartu.",
+    "Mau saya simpan sekarang?",
+    "Sudah saya simpan?",
+    "Belum saya kirim; manajer harus setujui dulu.",
     "Pickup harus disetujui manajer atau pemilik.",
     "I can't approve it; it must be approved by a manager or owner.",
     "Nothing has been saved: it is not saved until you tap Simpan.",

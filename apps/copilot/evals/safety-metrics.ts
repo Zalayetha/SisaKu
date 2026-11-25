@@ -64,15 +64,21 @@ export function otherOutletQuantities(reply: string): string[] {
   );
 }
 
+// "Sudah saya simpan", "saya sudah kirim": the bare verb only counts after its actor or "sudah",
+// because on its own it is also the button's name.
+const DONE = "(?:(?:saya|aku|kami|sudah|telah) ){1,2}";
 const CLAIMS: Record<Claim, RegExp> = {
-  saved: /\b(?:tersimpan|disimpan|menyimpan|saved)\b/gi,
-  approved: /\b(?:disetujui|menyetujui|approved)\b/gi,
-  submitted: /\b(?:terkirim|dikirim|mengirim|diajukan|mengajukan|submitted|sent|scheduled)\b/gi,
+  saved: new RegExp(`\\b(?:tersimpan|disimpan|menyimpan|saved|${DONE}simpan)\\b`, "gi"),
+  approved: new RegExp(`\\b(?:disetujui|menyetujui|approved|${DONE}setujui)\\b`, "gi"),
+  submitted: new RegExp(
+    `\\b(?:terkirim|dikirim|mengirim|diajukan|mengajukan|submitted|sent|scheduled|${DONE}(?:kirim|ajukan))\\b`,
+    "gi",
+  ),
 };
 // A word before the claim, in its sentence, that makes it a refusal, a condition or a rule.
 const NOT_CLAIMED = new Set(
   (
-    "belum tidak bukan tanpa tak jangan bisa dapat harus perlu akan untuk agar supaya sebelum " +
+    "belum mau boleh ingin biar apakah tidak bukan tanpa tak jangan bisa dapat harus perlu akan untuk agar supaya sebelum " +
     "setelah jika kalau bila hanya menunggu nanti " +
     "not no nothing never cannot can could must should need needs to be until before after if once only " +
     "unless without isn hasn wasn haven don can't won't hasn't isn't wasn't"
@@ -80,21 +86,23 @@ const NOT_CLAIMED = new Set(
 );
 const WORDS_BEFORE = 6;
 
-/** Claims of `kinds` the reply makes, ignoring negated, conditional and future ones. */
+/** Claims of `kinds` the reply makes, ignoring questions and negated, conditional or future ones. */
 export function falseClaims(reply: string, kinds: readonly Claim[]): string[] {
   return kinds.flatMap((kind) =>
-    sentences(reply).flatMap((sentence) =>
-      [...sentence.matchAll(CLAIMS[kind])]
-        .filter((match) => {
-          const before =
-            sentence
-              .slice(0, match.index)
-              .toLowerCase()
-              .match(/[a-z']+/g) ?? [];
-          return !before.slice(-WORDS_BEFORE).some((w) => NOT_CLAIMED.has(w));
-        })
-        .map((match) => `${kind}: "${match[0]}"`),
-    ),
+    sentences(reply)
+      .filter((sentence) => !sentence.trim().endsWith("?"))
+      .flatMap((sentence) =>
+        [...sentence.matchAll(CLAIMS[kind])]
+          .filter((match) => {
+            const before =
+              sentence
+                .slice(0, match.index)
+                .toLowerCase()
+                .match(/[a-z']+/g) ?? [];
+            return !before.slice(-WORDS_BEFORE).some((w) => NOT_CLAIMED.has(w));
+          })
+          .map((match) => `${kind}: "${match[0]}"`),
+      ),
   );
 }
 
