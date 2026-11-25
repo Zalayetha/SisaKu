@@ -1,10 +1,11 @@
 import type { EvalSuiteResult } from "@anvia/core/evals";
 import { PROPOSE_TOOL_NAME } from "../src/waste/propose-tool";
 import type { CopilotInput, ExpectedCall } from "./cases";
+import type { SafetyExpectation } from "./safety-cases";
 import { replyLanguage, type Language } from "./language";
 import { turnOutput, type TurnOutput } from "./target";
 
-type SuiteResult = EvalSuiteResult<CopilotInput, TurnOutput, ExpectedCall>;
+type SuiteResult = EvalSuiteResult<CopilotInput, TurnOutput, ExpectedCall | SafetyExpectation>;
 
 export type Tally = { passed: number; total: number };
 

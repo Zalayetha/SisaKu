@@ -13,6 +13,7 @@ import { GuessStore, snapshot, type GuessLine } from "../src/waste/guess";
 import type { CopilotInput } from "./cases";
 import { noonIn } from "./clock";
 import type { EvalEnvironment } from "./environment";
+import { plantText, snapshotChanges, takeSnapshot } from "./isolation";
 
 export type ToolCall = { name: string; args: unknown };
 
@@ -21,6 +22,8 @@ export type TurnOutput = {
   calls: ToolCall[];
   reply: string;
   errors: string[];
+  /** Rows the turn changed, in a dataset that compares the database (safety). */
+  changes?: string[];
   trace?: { traceId: string; observationId?: string };
 };
 
@@ -139,6 +142,11 @@ export type TargetDeps = {
   model: CompletionModel;
   /** The dataset the cases come from, recorded on each trace. */
   dataset: string;
+  /**
+   * Plants each case's text and compares the database around its turn. Cases must then run one
+   * at a time.
+   */
+  isolated?: boolean;
   /** Lens, when configured. */
   observer?: AgentObserver | undefined;
 };
@@ -149,8 +157,38 @@ export type TargetDeps = {
  */
 export function createCopilotTarget(deps: TargetDeps) {
   const { env } = deps;
+  /** Puts back the last planted text; also called by the next case, if a turn timed out. */
+  let restore = async () => {};
+
+  async function isolate(
+    input: CopilotInput,
+    output: TurnOutput,
+    run: () => Promise<TurnOutput>,
+  ): Promise<TurnOutput> {
+    await restore();
+    const before = await takeSnapshot(env.db);
+    // Kept per case: a turn that outlives its time limit must not undo the next case's text.
+    const undo = input.plant ? await plantText(env.db, input.plant) : async () => {};
+    restore = undo;
+    try {
+      return await run();
+    } finally {
+      await undo();
+      output.changes = snapshotChanges(before, await takeSnapshot(env.db));
+    }
+  }
+
   return async (input: CopilotInput, testCase: { id: string }): Promise<TurnOutput> => {
     const output: TurnOutput = { calls: [], reply: "", errors: [] };
+    const run = () => runTurn(input, testCase, output);
+    return deps.isolated ? isolate(input, output, run) : run();
+  };
+
+  async function runTurn(
+    input: CopilotInput,
+    testCase: { id: string },
+    output: TurnOutput,
+  ): Promise<TurnOutput> {
     const chatId = `eval-${testCase.id}`;
     const history = new ChatHistory(20);
     const earlier = input.history ?? [];
@@ -210,5 +248,5 @@ export function createCopilotTarget(deps: TargetDeps) {
       throw new TurnFailed(failure ?? "Copilot turn failed: no reply from the model", output);
     }
     return output;
-  };
+  }
 }

@@ -3,22 +3,26 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createModel } from "@sisaku/agents";
-import { toolCallCases, type ToolCallCase } from "./cases";
+import { toolCallCases } from "./cases";
 import { createEvalLens } from "./lens";
 import { formatText } from "./report";
 import {
   prepareEvalEnvironment,
   runCopilotEval,
-  type DatasetName,
+  type Dataset,
   type EvalEnvironment,
 } from "./run-eval";
+import { safetyCases } from "./safety-cases";
 
 // `pnpm eval`: runs the Copilot evals against a throwaway database (see ADR 0016).
 //   --dataset tool-call   only this dataset (repeatable)
 //   --case <id>           only these case ids (repeatable)
 //   --repeat <n>          run every case n times
 
-const DATASETS: Record<DatasetName, readonly ToolCallCase[]> = { "tool-call": toolCallCases };
+const DATASETS: readonly Dataset[] = [
+  { name: "tool-call", cases: toolCallCases },
+  { name: "safety", cases: safetyCases },
+];
 
 function fail(message: string): never {
   console.error(message);
@@ -32,8 +36,10 @@ const { values } = parseArgs({
     repeat: { type: "string" },
   },
 });
-const names = (values.dataset ?? Object.keys(DATASETS)) as DatasetName[];
-for (const name of names) if (!(name in DATASETS)) fail(`Unknown dataset ${name}`);
+const names = values.dataset ?? DATASETS.map((d) => d.name);
+for (const name of names) {
+  if (!DATASETS.some((d) => d.name === name)) fail(`Unknown dataset ${name}`);
+}
 const repeat = values.repeat === undefined ? 1 : Number(values.repeat);
 if (!Number.isInteger(repeat) || repeat < 1) fail("--repeat must be a whole number of 1 or more");
 
@@ -64,7 +70,7 @@ try {
   const report = await runCopilotEval({
     env,
     model,
-    datasets: names.map((name) => ({ name, cases: DATASETS[name] })),
+    datasets: DATASETS.filter((d) => names.includes(d.name)),
     ...(values.case ? { caseIds: values.case } : {}),
     repeat,
     print: (text) => process.stdout.write(text),
