@@ -25,6 +25,7 @@ import {
   createPipelineRuns,
   createPipelineWorker,
   DEFAULT_STEPS,
+  PermanentError,
   type PipelineWorkerDeps,
   type StepContext,
   type StepDefinition,
@@ -391,8 +392,30 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline traces", { timeout: 15_00
       expect(agents.map((span) => span.parentSpanId).sort()).toEqual(
         attempts.map((span) => span.spanId).sort(),
       );
-      expect(server.raw()).toContain("Failed query (see the job)");
+      expect(server.raw()).toContain("<redacted, see the job>");
       expect(server.raw()).not.toContain("Rendang");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("sends the real Lens no key or personal contact that an error quotes", async () => {
+    const server = await startLensServer();
+    const client = createLens("sisaku-pipeline", server.env);
+    const message = "401 for sk-abcdefghijklmnop1234, ask budi@example.com or 0812-3456-7890";
+    const analyze = step("analyze", async () => {
+      throw new PermanentError(message);
+    });
+    try {
+      const { runId } = await start();
+      startWorker(createPipelineLens(client), [analyze]);
+      await expectStatus(runId, "failed");
+      await workers.splice(0)[0]!.stop();
+      await client.close();
+      expect((await readRun(runId)).job("analyze").error).toBe(message);
+      expect(server.raw()).toContain("401 for <redacted, see the job>");
+      expect(server.raw()).not.toMatch(/sk-abc|budi@|0812/);
     } finally {
       await client.close();
       await server.close();

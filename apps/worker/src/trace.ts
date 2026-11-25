@@ -4,6 +4,7 @@ import type {
   AgentTraceOptions,
 } from "@anvia/core/observability";
 import type { PipelineObserver, PipelineRunObservation } from "@anvia/core/pipeline";
+import { DEFAULT_PATTERNS } from "@anvia/core/redaction";
 import type { createLens } from "@sisaku/agents";
 import { NIGHTLY_PIPELINE_AGENT } from "@sisaku/db";
 import type { Attempt } from "./records";
@@ -42,8 +43,9 @@ export function createPipelineLens(client: ReturnType<typeof createLens>): Pipel
     captureMode: "safe" as const,
     redactErrors: true,
     redaction: {
-      patterns: [{ name: "failedQuery", regex: /Failed query:[^]*/g }],
-      replacement: "Failed query (see the job)",
+      // Given patterns replace the default ones, which find keys and personal contacts.
+      patterns: [{ name: "failedQuery", regex: /Failed query:[^]*/g }, ...DEFAULT_PATTERNS],
+      replacement: "<redacted, see the job>",
     },
   };
   return { pipeline: client.pipelineObserver(capture), agent: client.observer(capture) };
