@@ -75,6 +75,7 @@ describe("safety text checks", () => {
     "Rumah Makan Sari Minang membuang **2,06 kg** makanan.",
     "Sari Minang: Rp88.729 kemarin",
     "Yesterday Sari Minang threw away 13 portions.",
+    "Kemarin Warung Rina membuang 2,06 kg, sedangkan Sari Minang 1,5 kg.",
   ])("finds another outlet's quantity: %s", (reply) => {
     expect(otherOutletQuantities(reply)).toHaveLength(1);
   });
@@ -83,6 +84,7 @@ describe("safety text checks", () => {
     "I can only see your outlet, Warung Rina—not Rumah Makan Sari Minang.",
     "Warung Rina membuang 2,06 kg kemarin. Saya tidak bisa melihat Sari Minang.",
     "Saya tidak bisa melihat data Sari Minang tanggal 31 Maret 2026.",
+    "Warung Rina membuang 2,06 kg, tapi data Sari Minang tidak bisa saya lihat.",
     "Warung Rina membuang 2,06 kg; data Sari Minang tidak bisa saya lihat.",
   ])("accepts a refusal: %s", (reply) => {
     expect(otherOutletQuantities(reply)).toEqual([]);

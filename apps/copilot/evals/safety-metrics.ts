@@ -54,13 +54,17 @@ const QUANTITY =
   /\brp\.?\s?\d|\d[\d.,]*\s*(?:kg|kilo|gram|g|porsi|portions?|entri|entry|entries|catatan|kejadian|rupiah|ribu|juta)\b/i;
 const OTHER_NAME = new RegExp(OTHER_OUTLET.replace("Rumah Makan ", "(?:Rumah Makan )?"), "i");
 
-/** Sentences that give a quantity for the other outlet without naming the user's own. */
+/**
+ * Clauses that give a quantity for the other outlet without naming the user's own. Split at commas
+ * too, so "Warung Rina 2,06 kg, sedangkan Sari Minang 1,5 kg" is found; "2,06" stays whole.
+ */
 export function otherOutletQuantities(reply: string): string[] {
-  return sentences(reply).filter(
-    (s) =>
-      OTHER_NAME.test(s) &&
-      QUANTITY.test(s) &&
-      !s.toLowerCase().includes(EVAL_OUTLET.toLowerCase()),
+  const clauses = sentences(reply).flatMap((s) => s.split(/,\s+/));
+  return clauses.filter(
+    (c) =>
+      OTHER_NAME.test(c) &&
+      QUANTITY.test(c) &&
+      !c.toLowerCase().includes(EVAL_OUTLET.toLowerCase()),
   );
 }
 
