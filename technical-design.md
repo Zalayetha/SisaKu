@@ -49,7 +49,7 @@ The pipeline runs without anyone asking; the Copilot acts only when a person mes
 | Analyze | Groups waste by item and cause; for any item above double its 14-day average, investigates (sales drop, over-prep, spoilage) before naming a cause; max 5 tool calls | `query_waste`, `get_sales`, `search_knowledge` |
 | Forecast | Computes a plain statistical forecast per item (e.g. average of the last 4 same weekdays), then the LLM may adjust it for holidays, Ramadan or tomorrow's rain (Open-Meteo MCP) with a stated reason; new outlets with little history fall back to the manager's usual prep, shown as low confidence | `get_sales`, `get_calendar`, Open-Meteo MCP tools |
 | Recommend | Turns forecasts into prep quantities with confidence; flags changes over 30% for approval; stretch: checks donatable surplus and drafts a pickup | `get_menu`, `search_knowledge`, `draft_pickup` |
-| Report | Writes the daily brief with Rupiah, kg and CO₂e and citations; sends it to the manager on Telegram. On Mondays it also sends the weekly owner report | `compute_co2e` |
+| Report | Writes the daily brief with Rupiah, kg and CO₂e and citations; a separate job sends it to the manager on Telegram. On Mondays there is also a weekly owner report | `compute_co2e` |
 
 Each step is its own BullMQ job, so a failed step reruns alone (ADR 0017). The Report step writes the brief; sending it is a separate job, so a retried Report never sends twice.
 

@@ -9,6 +9,9 @@ import { testRedis, testRedisUrl } from "./testing/redis";
 // The worker and the pipeline:run command as real processes, without the repo's .env.
 
 const cwd = fileURLToPath(new URL("..", import.meta.url));
+const DEAD_MCP = "http://127.0.0.1:1/mcp";
+const PRIVATE = { MCP_SSRF_PROTECTION: "disabled" };
+const NO_MCP = /Version negotiation probe failed: fetch failed/;
 const DEAD_REDIS = "redis://127.0.0.1:1";
 
 describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_000 }, () => {
@@ -111,19 +114,12 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
   });
 
   it.each([
-    ["Redis", { REDIS_URL: DEAD_REDIS }, /Redis/],
+    ["Redis", { REDIS_URL: DEAD_REDIS }, /Redis at REDIS_URL cannot be reached/],
     ["Postgres", { DATABASE_URL: "postgres://x:x@127.0.0.1:1/x" }, /ECONNREFUSED/],
-    ["kitchen-mcp", { KITCHEN_MCP_URL: "http://127.0.0.1:1/mcp" }, /KITCHEN_MCP_TOKEN/],
-    [
-      "impact-mcp",
-      {
-        IMPACT_MCP_URL: "http://127.0.0.1:1/mcp",
-        IMPACT_MCP_TOKEN: "t",
-        MCP_SSRF_PROTECTION: "disabled",
-      },
-      /impact|fetch|ECONNREFUSED/,
-    ],
-    ["Lens", { ANVIA_LENS_BASE_URL: "not a url" }, /not a url|Invalid URL|absolute/i],
+    ["kitchen-mcp without a token", { KITCHEN_MCP_URL: DEAD_MCP }, /KITCHEN_MCP_TOKEN/],
+    ["kitchen-mcp", { KITCHEN_MCP_URL: DEAD_MCP, KITCHEN_MCP_TOKEN: "t", ...PRIVATE }, NO_MCP],
+    ["impact-mcp", { IMPACT_MCP_URL: DEAD_MCP, IMPACT_MCP_TOKEN: "t", ...PRIVATE }, NO_MCP],
+    ["Lens", { ANVIA_LENS_BASE_URL: "not a url" }, /Lens baseUrl must be an absolute/],
   ])("the worker refuses to start with a broken %s", async (_name, broken, message) => {
     const { code, output } = await run("src/main.ts", [], { ...settings, ...broken });
     expect(code).not.toBe(0);

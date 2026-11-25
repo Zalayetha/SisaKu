@@ -141,7 +141,7 @@ export const prepLogs = pgTable(
 );
 
 /**
- * One row per Copilot turn that saved something, or per pipeline run (one outlet, one business
+ * One row per confirmed waste guess of the Copilot (ADR 0014), or per pipeline run (one outlet, one business
  * date). Outlet, business date, finish time and error are filled for pipeline runs only.
  */
 export const agentRuns = pgTable(

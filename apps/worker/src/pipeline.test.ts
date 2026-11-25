@@ -1,6 +1,13 @@
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
-import { agentRuns, outlets, pipelineJobResults, pipelineJobs, PIPELINE_STEPS } from "@sisaku/db";
+import {
+  agentRuns,
+  createDb,
+  outlets,
+  pipelineJobResults,
+  pipelineJobs,
+  PIPELINE_STEPS,
+} from "@sisaku/db";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
@@ -47,7 +54,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     await pool?.end();
   });
 
-  async function startWorker(extra: Partial<PipelineWorkerDeps> = {}) {
+  function startWorker(extra: Partial<PipelineWorkerDeps> = {}) {
     const worker = createPipelineWorker({
       db,
       servers: mcp.servers,
@@ -104,15 +111,18 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     return { run: run!, jobs };
   }
 
-  async function finished(runId: string) {
-    return expect.poll(async () => (await readRun(runId)).run.status, { timeout: 10_000 });
+  /** Waits until the run has the status. */
+  async function expectStatus(runId: string, status: "succeeded" | "failed") {
+    await expect
+      .poll(async () => (await readRun(runId)).run.status, { timeout: 10_000 })
+      .toBe(status);
   }
 
   it("takes a manual run through all five stub steps", async () => {
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker();
+    startWorker();
 
-    await (await finished(runId)).toBe("succeeded");
+    await expectStatus(runId, "succeeded");
     const { run, jobs } = await readRun(runId);
     expect(run).toMatchObject({
       agent: "nightly-pipeline",
@@ -154,9 +164,9 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       },
     };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker({ steps: { ...DEFAULT_STEPS, ingest, forecast } });
+    startWorker({ steps: { ...DEFAULT_STEPS, ingest, forecast } });
 
-    await (await finished(runId)).toBe("succeeded");
+    await expectStatus(runId, "succeeded");
     const { run, jobs } = await readRun(runId);
     expect(jobs[0]!.output).toEqual({ portions: 512 });
     expect(jobs[2]!.output).toEqual({ items: 2 });
@@ -179,9 +189,9 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       run: async () => ({ flagged: "rendang" }) as never,
     };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker({ steps: { ...DEFAULT_STEPS, analyze } });
+    startWorker({ steps: { ...DEFAULT_STEPS, analyze } });
 
-    await (await finished(runId)).toBe("failed");
+    await expectStatus(runId, "failed");
     const { run, jobs } = await readRun(runId);
     expect(run.error).toMatch(/flagged/);
     expect(run.finishedAt).toBeInstanceOf(Date);
@@ -241,11 +251,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     await runs.startManual({ outlet: ids.outletA, date: "2026-03-02" });
     await runs.startManual({ outlet: ids.outletB, date: DATE });
 
-    await startWorker();
-    await (await finished(first.runId)).toBe("succeeded");
+    startWorker();
+    await expectStatus(first.runId, "succeeded");
     const second = await runs.startManual({ outlet: ids.outletA, date: DATE });
     expect(second.runId).not.toBe(first.runId);
-    await (await finished(second.runId)).toBe("succeeded");
+    await expectStatus(second.runId, "succeeded");
   });
 
   it("starts one run when the command is given twice at the same moment", async () => {
@@ -261,8 +271,8 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       else expect(String(r.reason)).toMatch(/already in progress/);
     }
     const ingest = countingStep("ingest");
-    await startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
-    await (await finished(rows[0]!.id)).toBe("succeeded");
+    startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
+    await expectStatus(rows[0]!.id, "succeeded");
     expect(ingest.started.count).toBe(1);
   });
 
@@ -273,8 +283,8 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     const again = await runs.startManual({ outlet: ids.outletA, date: DATE });
     expect(again.runId).toBe(first.runId);
     expect(await db.select().from(pipelineJobs)).toHaveLength(5);
-    await startWorker();
-    await (await finished(first.runId)).toBe("succeeded");
+    startWorker();
+    await expectStatus(first.runId, "succeeded");
   });
 
   it("does not run a step again that already has its result", async () => {
@@ -282,18 +292,18 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     const analyze = blockingStep("analyze");
     const steps = { ...DEFAULT_STEPS, ingest: ingest.step, analyze: analyze.step };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker({ steps });
+    startWorker({ steps });
     await expect.poll(() => analyze.started.count).toBe(1);
 
     // Redis loses the run's jobs while Postgres keeps Ingest's result.
     await Promise.all(workers.splice(0).map((w) => w.stop(0)));
     await redis.clear();
     await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker({ steps });
+    startWorker({ steps });
     await expect.poll(() => analyze.started.count).toBe(2);
     analyze.release();
 
-    await (await finished(runId)).toBe("succeeded");
+    await expectStatus(runId, "succeeded");
     expect(ingest.started.count).toBe(1);
     const { jobs } = await readRun(runId);
     expect(jobs.map((j) => [j.step, j.status, j.attempts]).slice(0, 2)).toEqual([
@@ -305,7 +315,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
   it("waits for the current step when stopped", async () => {
     const ingest = blockingStep("ingest");
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
+    startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
     await expect.poll(() => ingest.started.count).toBe(1);
 
     const stopped = workers.splice(0)[0]!.stop(10_000);
@@ -320,12 +330,101 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
   it("stops after the time allowed even if the current step has not finished", async () => {
     const ingest = blockingStep("ingest");
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    await startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
+    startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
     await expect.poll(() => ingest.started.count).toBe(1);
 
     const before = Date.now();
     await workers.splice(0)[0]!.stop(200);
     expect(Date.now() - before).toBeLessThan(2_000);
     expect((await readRun(runId)).jobs[0]!.status).toBe("running");
+  });
+
+  it("marks a run dead whose failure was never recorded, and starts a new one", async () => {
+    const dead = await runs.startManual({ outlet: ids.outletA, date: DATE });
+    // Postgres is unreachable for the worker, so it can record nothing.
+    const broken = createDb(testDbUrl);
+    await broken.pool.end();
+    const failures: string[] = [];
+    startWorker({ db: broken.db, log: (message) => failures.push(message) });
+    await expect.poll(() => failures.join()).toMatch(/Could not record/);
+    await workers.splice(0)[0]!.stop();
+    expect((await readRun(dead.runId)).run.status).toBe("running");
+
+    const next = await runs.startManual({ outlet: ids.outletA, date: DATE });
+    expect(next.runId).not.toBe(dead.runId);
+    const { run, jobs } = await readRun(dead.runId);
+    expect(run).toMatchObject({ status: "failed", finishedAt: expect.any(Date) });
+    expect(run.error).toMatch(/^ingest: /);
+    expect(jobs.map((j) => j.status)).toEqual([
+      "failed",
+      "pending",
+      "pending",
+      "pending",
+      "pending",
+    ]);
+    startWorker();
+    await expectStatus(next.runId, "succeeded");
+  });
+
+  it("records a failure that happens before the step starts", async () => {
+    const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
+    await db.update(agentRuns).set({ traceId: null }).where(eq(agentRuns.id, runId));
+    startWorker();
+    await expectStatus(runId, "failed");
+    const { jobs } = await readRun(runId);
+    expect(jobs[0]).toMatchObject({ status: "failed", error: expect.any(String) });
+  });
+
+  it("keeps the first result when a worker thought dead finishes or fails late", async () => {
+    for (const late of ["finishes", "fails"] as const) {
+      let settleLate = () => {};
+      let started = 0;
+      const ingest: StepDefinition = {
+        name: "ingest",
+        output: z.object({ from: z.string() }),
+        run: async () => {
+          if (++started > 1) return { from: "second worker" };
+          await new Promise<void>((resolve) => (settleLate = resolve));
+          if (late === "fails") throw new Error("late failure");
+          return { from: "first worker" };
+        },
+      };
+      const steps = { ...DEFAULT_STEPS, ingest };
+      const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
+      startWorker({ steps });
+      await expect.poll(() => started).toBe(1);
+      await workers.splice(0)[0]!.stop(0);
+      await redis.clear();
+      await runs.startManual({ outlet: ids.outletA, date: DATE });
+      startWorker({ steps });
+      await expectStatus(runId, "succeeded");
+
+      settleLate();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const { run, jobs } = await readRun(runId);
+      expect(run).toMatchObject({ status: "succeeded", error: null });
+      expect(jobs[0]).toMatchObject({
+        status: "succeeded",
+        error: null,
+        output: { from: "second worker" },
+      });
+      await Promise.all(workers.splice(0).map((w) => w.stop()));
+      await redis.clear();
+    }
+  });
+
+  it("fails the step whose output would not survive being saved as JSON", async () => {
+    const ingest: StepDefinition = {
+      name: "ingest",
+      output: z.object({ day: z.date() }),
+      run: async () => ({ day: new Date() }),
+    };
+    const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
+    startWorker({ steps: { ...DEFAULT_STEPS, ingest } });
+    await expectStatus(runId, "failed");
+    expect((await readRun(runId)).jobs.map((j) => j.status).slice(0, 2)).toEqual([
+      "failed",
+      "pending",
+    ]);
   });
 });

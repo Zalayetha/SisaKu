@@ -8,7 +8,8 @@ import {
   type PipelineStep,
 } from "@sisaku/db";
 import { Worker } from "bullmq";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
+import { recordFailure } from "./failure";
 import { PIPELINE_QUEUE, queueOptions, type PipelineJobData, type PipelineRedis } from "./queue";
 import type { Db } from "./runs";
 import { DEFAULT_STEPS, DEFAULT_TIME_LIMIT_MS, type PipelineSteps } from "./steps";
@@ -62,19 +63,20 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     return outputs;
   }
 
-  async function hasResult(runId: string, step: PipelineStep): Promise<boolean> {
-    const rows = await db
-      .select({ id: pipelineJobResults.id })
-      .from(pipelineJobResults)
-      .innerJoin(pipelineJobs, eq(pipelineJobs.id, pipelineJobResults.jobId))
-      .where(and(eq(pipelineJobs.runId, runId), eq(pipelineJobs.step, step)));
-    return rows.length > 0;
+  /**
+   * The step's output as it is stored. It must match its schema after a round trip through JSON,
+   * because that is how the steps after this one read it.
+   */
+  function toStored(step: PipelineStep, raw: unknown): unknown {
+    const schema = steps[step].output;
+    const stored: unknown = JSON.parse(JSON.stringify(schema.parse(raw)));
+    schema.parse(stored);
+    return stored;
   }
 
   /** Does the work first, then saves the result and the status together. */
-  async function executeStep({ runId, step }: PipelineJobData): Promise<void> {
+  async function runStep({ runId, step }: PipelineJobData): Promise<void> {
     const { traceId, ...run } = await loadRun(runId);
-    if (await hasResult(runId, step)) return;
     const ofStep = and(eq(pipelineJobs.runId, runId), eq(pipelineJobs.step, step));
     const [job] = await db
       .update(pipelineJobs)
@@ -83,71 +85,39 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
         attempts: sql`${pipelineJobs.attempts} + 1`,
         startedAt: new Date(),
       })
-      .where(ofStep)
+      .where(and(ofStep, notInArray(pipelineJobs.status, ["succeeded", "degraded"])))
       .returning({ id: pipelineJobs.id });
+    if (!job) return; // It already has its result, which was saved with this status.
 
     const definition = steps[step];
-    const output = definition.output.parse(
-      await definition.run({
-        run,
-        outputs: await loadOutputs(runId, step),
-        servers: deps.servers,
-        trace: { traceId },
-        signal: AbortSignal.timeout(definition.timeLimitMs ?? DEFAULT_TIME_LIMIT_MS),
-      }),
-    );
+    const raw = await definition.run({
+      run,
+      outputs: await loadOutputs(runId, step),
+      servers: deps.servers,
+      trace: { traceId },
+      signal: AbortSignal.timeout(definition.timeLimitMs ?? DEFAULT_TIME_LIMIT_MS),
+    });
+    const output = toStored(step, raw);
     await db.transaction(async (tx) => {
       const finishedAt = new Date();
       // A worker thought dead may finish the same step later; the first result stands.
       const saved = await tx
         .insert(pipelineJobResults)
-        .values({ jobId: job!.id, output })
+        .values({ jobId: job.id, output })
         .onConflictDoNothing({ target: pipelineJobResults.jobId })
         .returning({ id: pipelineJobResults.id });
       if (saved.length === 0) return;
-      await tx.update(pipelineJobs).set({ status: "succeeded", finishedAt }).where(ofStep);
+      await tx
+        .update(pipelineJobs)
+        .set({ status: "succeeded", error: null, finishedAt })
+        .where(ofStep);
       if (step === LAST_STEP) {
         await tx
           .update(agentRuns)
-          .set({ status: "succeeded", finishedAt })
+          .set({ status: "succeeded", error: null, finishedAt })
           .where(eq(agentRuns.id, runId));
       }
     });
-  }
-
-  /** Stops the run at this step. A step that already has its result is left alone. */
-  async function recordFailure({ runId, step }: PipelineJobData, error: unknown): Promise<void> {
-    const message = error instanceof Error ? error.message : String(error);
-    const finishedAt = new Date();
-    await db.transaction(async (tx) => {
-      const failed = await tx
-        .update(pipelineJobs)
-        .set({ status: "failed", error: message, finishedAt })
-        .where(
-          and(
-            eq(pipelineJobs.runId, runId),
-            eq(pipelineJobs.step, step),
-            eq(pipelineJobs.status, "running"),
-          ),
-        )
-        .returning({ id: pipelineJobs.id });
-      if (failed.length === 0) return;
-      await tx
-        .update(agentRuns)
-        .set({ status: "failed", error: `${step}: ${message}`, finishedAt })
-        .where(eq(agentRuns.id, runId));
-    });
-  }
-
-  async function runStep(data: PipelineJobData): Promise<void> {
-    try {
-      await executeStep(data);
-    } catch (error) {
-      await recordFailure(data, error).catch((failure: unknown) =>
-        log(`Could not record the failure of ${data.step} in run ${data.runId}`, failure),
-      );
-      throw error;
-    }
   }
 
   const worker = new Worker<PipelineJobData, void, PipelineStep>(
@@ -156,11 +126,24 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     { ...queueOptions(deps.redis), concurrency: 2 },
   );
   worker.on("error", (error) => log("Pipeline worker error", error));
-  worker.on("failed", (job, error) => log(`Pipeline job ${job?.id} failed`, error));
+  // Also emitted for a job BullMQ fails without calling `runStep` (it stalled too often), and only
+  // by the worker that holds the job, so a worker thought dead records nothing.
+  const recording = new Set<Promise<void>>();
+  worker.on("failed", (job, error) => {
+    log(`Pipeline job ${job?.id} failed`, error);
+    if (!job) return;
+    const { runId, step } = job.data;
+    const done = recordFailure(db, job.data, error.message)
+      .catch((failure: unknown) =>
+        log(`Could not record the failure of ${step} in run ${runId}`, failure),
+      )
+      .finally(() => recording.delete(done));
+    recording.add(done);
+  });
 
   return {
     /**
-     * Takes no new jobs and waits for the current ones. A step still running after `waitMs` is
+     * Takes no new jobs and waits for the current steps. A step still running after `waitMs` is
      * left behind: its job stalls, and another worker runs that step again.
      */
     async stop(waitMs = DEFAULT_STOP_WAIT_MS): Promise<void> {
@@ -172,6 +155,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
       clearTimeout(timer);
       if (timedOut) log(`Stopped with a step still running after ${waitMs} ms`);
       await worker.close(timedOut);
+      await Promise.all(recording);
     },
   };
 }

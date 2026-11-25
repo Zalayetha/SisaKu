@@ -9,6 +9,7 @@ import {
 } from "@sisaku/db";
 import { and, eq, sql } from "drizzle-orm";
 import * as z from "zod";
+import { recordFailure } from "./failure";
 import { createPipelineQueue, type PipelineRedis } from "./queue";
 
 export type Db = ReturnType<typeof createDb>["db"];
@@ -40,11 +41,50 @@ export function createPipelineRuns({ db, redis }: { db: Db; redis: PipelineRedis
     return found[0]!.id;
   }
 
+  /** The run in progress for the outlet and date, or a new manual one. */
+  async function findOrCreate(outletId: string, date: string) {
+    return db.transaction(async (tx) => {
+      // One creation at a time per outlet, without blocking rows that only reference it.
+      await tx
+        .select({ id: outlets.id })
+        .from(outlets)
+        .where(eq(outlets.id, outletId))
+        .for("no key update");
+      const [inProgress] = await tx
+        .select({ id: agentRuns.id })
+        .from(agentRuns)
+        .where(
+          and(
+            eq(agentRuns.agent, NIGHTLY_PIPELINE_AGENT),
+            eq(agentRuns.outletId, outletId),
+            eq(agentRuns.businessDate, date),
+            eq(agentRuns.status, "running"),
+          ),
+        );
+      if (inProgress) return { id: inProgress.id, created: false };
+
+      const [created] = await tx
+        .insert(agentRuns)
+        .values({
+          agent: NIGHTLY_PIPELINE_AGENT,
+          trigger: "manual",
+          outletId,
+          businessDate: date,
+          traceId: randomBytes(16).toString("hex"),
+        })
+        .returning({ id: agentRuns.id });
+      const runId = created!.id;
+      await tx.insert(pipelineJobs).values(PIPELINE_STEPS.map((step) => ({ runId, step })));
+      return { id: runId, created: true };
+    });
+  }
+
   return {
     /**
      * Starts a run by hand for one outlet (id or name) and business date. Repeats are allowed, one
      * at a time. A run in progress whose jobs are not in Redis (its creation was interrupted, or
-     * Redis was emptied) is queued again instead of refused; its finished steps are kept.
+     * Redis was emptied) is queued again instead of refused; its finished steps are kept. One that
+     * BullMQ gave up on without the failure reaching Postgres is recorded as failed, and replaced.
      */
     async startManual(request: { outlet: string; date: string }): Promise<{ runId: string }> {
       const { date } = request;
@@ -53,43 +93,16 @@ export function createPipelineRuns({ db, redis }: { db: Db; redis: PipelineRedis
       }
       const outletId = await findOutlet(request.outlet);
 
-      const run = await db.transaction(async (tx) => {
-        // One creation at a time per outlet, without blocking rows that only reference it.
-        await tx
-          .select({ id: outlets.id })
-          .from(outlets)
-          .where(eq(outlets.id, outletId))
-          .for("no key update");
-        const [inProgress] = await tx
-          .select({ id: agentRuns.id })
-          .from(agentRuns)
-          .where(
-            and(
-              eq(agentRuns.agent, NIGHTLY_PIPELINE_AGENT),
-              eq(agentRuns.outletId, outletId),
-              eq(agentRuns.businessDate, date),
-              eq(agentRuns.status, "running"),
-            ),
-          );
-        if (inProgress) return { id: inProgress.id, created: false };
-
-        const [created] = await tx
-          .insert(agentRuns)
-          .values({
-            agent: NIGHTLY_PIPELINE_AGENT,
-            trigger: "manual",
-            outletId,
-            businessDate: date,
-            traceId: randomBytes(16).toString("hex"),
-          })
-          .returning({ id: agentRuns.id });
-        const runId = created!.id;
-        await tx.insert(pipelineJobs).values(PIPELINE_STEPS.map((step) => ({ runId, step })));
-        return { id: runId, created: true };
-      });
-
-      if (!run.created && (await queue.has(run.id))) {
-        throw new RunRefused(`Run ${run.id} for this outlet and date is already in progress`);
+      let run = await findOrCreate(outletId, date);
+      if (!run.created) {
+        const state = await queue.state(run.id);
+        if (state.type === "queued") {
+          throw new RunRefused(`Run ${run.id} for this outlet and date is already in progress`);
+        }
+        if (state.type === "failed") {
+          await recordFailure(db, { runId: run.id, step: state.step }, state.reason);
+          run = await findOrCreate(outletId, date);
+        }
       }
       await queue.add(run.id);
       return { runId: run.id };

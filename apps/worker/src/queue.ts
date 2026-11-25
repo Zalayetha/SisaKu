@@ -13,6 +13,11 @@ export type PipelineRedis = { url: string; prefix?: string };
 /** Everything a job carries: the rest is read from Postgres. */
 export type PipelineJobData = { runId: string; step: PipelineStep };
 
+export type RunQueueState =
+  | { type: "missing" }
+  | { type: "failed"; step: PipelineStep; reason: string }
+  | { type: "queued" };
+
 export function queueOptions({ url, prefix }: PipelineRedis) {
   return { connection: { url }, ...(prefix ? { prefix } : {}) };
 }
@@ -46,9 +51,19 @@ export function createPipelineQueue(redis: PipelineRedis) {
   const flows = new FlowProducer(queueOptions(redis));
   const lastStep = PIPELINE_STEPS.at(-1)!;
   return {
-    /** Whether the run's jobs are in Redis. They are added together, so one stands for all. */
-    async has(runId: string): Promise<boolean> {
-      return (await queue.getJob(jobId(runId, lastStep))) !== undefined;
+    /**
+     * What Redis knows of the run: nothing, a step BullMQ gave up on, or jobs that will still run.
+     * A run's jobs are added together, so the last step stands for all of them.
+     */
+    async state(runId: string): Promise<RunQueueState> {
+      if (!(await queue.getJob(jobId(runId, lastStep)))) return { type: "missing" };
+      for (const step of PIPELINE_STEPS) {
+        const job = await queue.getJob(jobId(runId, step));
+        if (job && (await job.isFailed())) {
+          return { type: "failed", step, reason: job.failedReason ?? "unknown error" };
+        }
+      }
+      return { type: "queued" };
     },
     async add(runId: string): Promise<void> {
       await flows.add(runFlow(runId));

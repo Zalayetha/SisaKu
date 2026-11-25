@@ -13,7 +13,7 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 
 - A pipeline run is one `agent_runs` row for one outlet and one business date, with agent `nightly-pipeline` and trigger `schedule` or `manual`. `outlet_id`, `business_date`, `finished_at` and `error` are empty for Copilot rows. `cost_usd` stays empty: Lens records cost.
 - The business date is fixed when the run is created and never recomputed, so a retry after midnight still belongs to the same day.
-- `pipeline_jobs` holds the state of each step and `pipeline_job_results` its output, as in CritiqueQ's `Job` and `JobResult`. Unlike CritiqueQ, the result and the status are saved in one transaction, and the output is one JSON column because each step has its own shape, checked against the step's Zod schema.
+- `pipeline_jobs` holds the state of each step and `pipeline_job_results` its output, as in CritiqueQ's `Job` and `JobResult`. Unlike CritiqueQ, the result and the status are saved in one transaction, and the output is one JSON column because each step has its own shape, checked against the step's Zod schema before it is saved and again after a round trip through JSON, so a step fails itself rather than the one that reads it.
 - A step gets a table of its own only when people change its rows, other rows point at it, or its fields are queried across many nights. Its result is then a summary, so no number is stored twice.
 - A unique index allows one scheduled run per outlet and business date. Manual runs may repeat, one at a time. Readers use the latest successful run.
 
@@ -34,13 +34,14 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 - As in ADR 0012, "agents reach data only through tools" binds the LLM, not fixed code. Kitchen data is read through MCP tools; runs, jobs and results are written by fixed code through `@sisaku/db`. No MCP write tools are added.
 - A trace id is generated and stored when the run is created, so every step and retry can join one trace.
 - `apps/worker` holds the queue and the step engine, and runs from source through tsx like the Copilot, so it drops the tsup build of ADR 0004. LLM steps will live in `packages/agents`.
-- The worker refuses to start when Redis, Postgres, either MCP connection or the Lens settings are missing or broken. On SIGTERM it waits up to 30 seconds for the current step.
+- The worker refuses to start when Redis, Postgres, either MCP connection or the Lens settings are missing or broken. Lens itself is not contacted, because an outage must never stop a run. On SIGTERM it waits up to 30 seconds for the current steps.
 - Bull Board is the operators' dashboard, in `apps/api` so it outlives a killed worker (#82).
 
 ## Consequences
 
 - Redis can be emptied without losing finished work: the run's state is in Postgres, and repeating `pnpm pipeline:run` queues the rest.
 - A worker thought dead may still finish its step. The first result saved stands, and the late one is dropped.
+- BullMQ decides when a step has failed; the worker then records it. If that record is lost (Postgres was down), the run looks in progress until `pnpm pipeline:run` is repeated, which records the failure and starts a new run.
 - A crash between Postgres and Redis leaves a run in progress without jobs until its creation is repeated.
-- `agent_runs.outlet_id` references `outlets`, so the mock-data reset now empties `agent_runs` too, Copilot rows included. The rows pointing at them were already emptied by it.
+- `agent_runs.outlet_id` references `outlets`, so the mock-data reset (ADR 0006, amended) now empties `agent_runs` too, Copilot rows included. The rows pointing at them were already emptied by it.
 - Tests run on real Redis (`TEST_REDIS_URL`) and Postgres, under a key prefix of their own, and skip without them. CI has both.

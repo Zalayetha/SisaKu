@@ -27,7 +27,7 @@ export type StepContext = {
 /** One step of the nightly pipeline. Replacing a stub means replacing one of these. */
 export type StepDefinition<Output = unknown> = {
   readonly name: PipelineStep;
-  /** Output that does not match is never saved. */
+  /** Output that does not match, or does not after being stored as JSON, is never saved. */
   readonly output: z.ZodType<Output>;
   run(context: StepContext): Promise<Output>;
   /** What to save instead once the step's attempts have run out. Not used until #79. */

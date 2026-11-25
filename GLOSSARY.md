@@ -17,7 +17,7 @@ The conversational agent people talk to on Telegram, in a direct chat. It answer
 _Avoid_: Bot, chatbot, assistant
 
 **Nightly pipeline**:
-The agent that runs on its own every night per outlet and produces the morning brief. Nobody prompts it.
+The agent that runs on its own every night per outlet and produces the morning brief. Nobody prompts it; a run can also be started by hand, as for the demo.
 _Avoid_: Cron agent, batch job
 
 **Pipeline run**:
