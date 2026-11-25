@@ -15,7 +15,7 @@ const RETRY_DELAY_MS = 30_000;
 /** Where the queue lives. `prefix` keeps tests apart; production uses BullMQ's default. */
 export type PipelineRedis = { url: string; prefix?: string };
 
-/** Everything a job carries: the rest is read from Postgres. */
+/** Everything a step's job carries: the rest is read from Postgres. */
 export const pipelineJobData = z.object({ runId: z.uuid(), step: z.enum(PIPELINE_STEPS) });
 export type PipelineJobData = z.infer<typeof pipelineJobData>;
 
@@ -32,17 +32,13 @@ function jobId(runId: string, step: PipelineStep) {
   return `${runId}-${step}`;
 }
 
-export function retryOptions(retryDelayMs = RETRY_DELAY_MS) {
-  return { attempts: STEP_ATTEMPTS, backoff: { type: "exponential", delay: retryDelayMs } };
-}
-
 export const finishedJobOptions = {
   removeOnComplete: { age: KEEP_FINISHED_SECONDS },
   removeOnFail: { age: KEEP_FINISHED_SECONDS },
 };
 
 /** The run as nested jobs: a step waits for its child, the step before it. */
-function runFlow(runId: string, retryDelayMs?: number): FlowJob {
+function runFlow(runId: string, retryDelayMs: number): FlowJob {
   let flow: FlowJob | undefined;
   for (const step of PIPELINE_STEPS) {
     flow = {
@@ -51,7 +47,8 @@ function runFlow(runId: string, retryDelayMs?: number): FlowJob {
       data: { runId, step } satisfies PipelineJobData,
       opts: {
         jobId: jobId(runId, step),
-        ...retryOptions(retryDelayMs),
+        attempts: STEP_ATTEMPTS,
+        backoff: { type: "exponential", delay: retryDelayMs },
         ...finishedJobOptions,
       },
       ...(flow ? { children: [flow] } : {}),
@@ -61,7 +58,7 @@ function runFlow(runId: string, retryDelayMs?: number): FlowJob {
 }
 
 /** Puts pipeline runs on the queue. `retryDelayMs` is the wait before the first retry. */
-export function createPipelineQueue(redis: PipelineRedis, retryDelayMs?: number) {
+export function createPipelineQueue(redis: PipelineRedis, retryDelayMs = RETRY_DELAY_MS) {
   const queue = new Queue(PIPELINE_QUEUE, queueOptions(redis));
   const flows = new FlowProducer(queueOptions(redis));
   const lastStep = PIPELINE_STEPS.at(-1)!;

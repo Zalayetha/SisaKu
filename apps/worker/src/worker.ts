@@ -14,7 +14,6 @@ import {
   pipelineJobData,
   queueOptions,
   STEP_ATTEMPTS,
-  type PipelineJobData,
   type PipelineRedis,
 } from "./queue";
 import {
@@ -157,7 +156,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
   const attempts = new WeakMap<Job, Attempt>();
 
   /** One attempt of one step, as a span in the run's trace. */
-  async function runStep(job: Job<PipelineJobData>): Promise<void> {
+  async function runStep(job: Job): Promise<void> {
     const valid = pipelineJobData.safeParse(job.data);
     if (!valid.success) throw new PermanentError(`Not a pipeline job: ${valid.error.message}`);
     const { traceId, ...run } = await loadRun(valid.data.runId);
@@ -179,7 +178,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
    * The work first, then the save; the fallback once the step's attempts have run out.
    */
   async function runAttempt(
-    job: Job<PipelineJobData>,
+    job: Job,
     run: PipelineRun,
     { attempt, interrupted }: StartedStep,
     span: AttemptSpan,
@@ -245,16 +244,18 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     }
   }
 
-  async function processJob(job: Job<PipelineJobData>) {
+  async function processJob(job: Job, token?: string) {
     try {
-      if (deps.schedule && job.name === START_JOB) await deps.schedule.process(job);
-      else await runStep(job);
+      if (job.name !== START_JOB) return await runStep(job);
+      // Tried again, by a worker that has one.
+      if (!deps.schedule) throw new Error("This worker starts no scheduled runs");
+      await deps.schedule.processStart(job, token);
     } catch (error) {
       throw error instanceof PermanentError ? unrecoverable(error) : error;
     }
   }
 
-  const worker = new Worker<PipelineJobData, void, string>(PIPELINE_QUEUE, processJob, {
+  const worker = new Worker(PIPELINE_QUEUE, processJob, {
     ...queueOptions(deps.redis),
     concurrency: 2,
     lockDuration: deps.stalledAfterMs ?? STALLED_AFTER_MS,
@@ -270,9 +271,10 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
     log(`Pipeline job ${job?.id} failed`, error);
     // BullMQ sets `finishedOn` only when it will not try again. Attempts left do not tell: a
     // permanent error ends the job early.
-    if (!job?.finishedOn || !pipelineJobData.safeParse(job.data).success) return;
-    const { runId, step } = job.data;
-    const done = recordFailure(db, job.data, error.message, attempts.get(job))
+    const data = pipelineJobData.safeParse(job?.data).data;
+    if (!job?.finishedOn || !data) return;
+    const { runId, step } = data;
+    const done = recordFailure(db, data, error.message, attempts.get(job))
       .catch((failure: unknown) =>
         log(`Could not record the failure of ${step} in run ${runId}`, failure),
       )

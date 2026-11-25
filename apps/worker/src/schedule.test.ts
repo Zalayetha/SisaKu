@@ -1,6 +1,6 @@
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
-import { agentRuns, outlets, pipelineJobs } from "@sisaku/db";
+import { agentRuns, createDb, outlets, pipelineJobs } from "@sisaku/db";
 import { Queue } from "bullmq";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -14,6 +14,7 @@ import {
   PermanentError,
   PIPELINE_QUEUE,
   queueOptions,
+  type PipelineSchedule,
   type PipelineSteps,
 } from "./index";
 import { testRedis, testRedisUrl } from "./testing/redis";
@@ -69,12 +70,13 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline schedule", { timeout: 15_
     logged = [];
   }
 
-  function startWorker(steps: Partial<PipelineSteps> = {}) {
+  function startWorker(steps: Partial<PipelineSteps> = {}, ...own: [PipelineSchedule?]) {
+    const used = own.length > 0 ? own[0] : schedule;
     const worker = createPipelineWorker({
       db,
       servers: mcp.servers,
       redis: redis.redis,
-      schedule,
+      ...(used ? { schedule: used } : {}),
       steps: { ...DEFAULT_STEPS, ...steps },
       log: () => undefined,
     });
@@ -154,6 +156,8 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline schedule", { timeout: 15_
     });
 
     it("skips an outlet whose timezone does not exist, and says so", async () => {
+      at("2026-03-01T05:00:00Z");
+      await schedule.sync(); // it had a schedule before
       at("2026-03-01T16:00:00Z");
       await db.update(outlets).set({ timezone: "Mars/Base" }).where(eq(outlets.id, ids.outletA));
       await schedule.sync();
@@ -161,6 +165,24 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline schedule", { timeout: 15_
       expect((await started()).map(([outletId]) => outletId)).toEqual([ids.outletB]);
       expect(logged.join("\n")).toMatch(new RegExp(`${ids.outletA}.*Mars/Base`));
     });
+  });
+
+  it("refuses to sync when Postgres cannot be read", async () => {
+    at("2026-03-01T16:00:00Z");
+    const broken = createDb(testDbUrl);
+    await broken.pool.end();
+    const failingRuns = createPipelineRuns({ db: broken.db, redis: redis.redis });
+    const failing = createPipelineSchedule({
+      db,
+      redis: redis.redis,
+      runs: failingRuns,
+      now: () => clock,
+      log: () => undefined,
+    });
+    // A missed night must not be lost to a worker that starts all the same.
+    await expect(failing.sync()).rejects.toThrow();
+    await failing.close();
+    await failingRuns.close();
   });
 
   describe("a scheduled start", () => {
@@ -204,15 +226,109 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline schedule", { timeout: 15_
     });
 
     it.each([
-      ["after 06:00", "2026-03-01T23:00:00Z"],
-      ["the next evening", "2026-03-02T16:00:00Z"],
-      ["days later", "2026-03-05T18:00:00Z"],
-    ])("skips a night that is over when it is taken up %s, and says so", async (_when, now) => {
-      at(now);
+      ["after 06:00", "2026-03-01T23:00:00Z", []],
+      ["the next evening", "2026-03-02T16:00:00Z", ["2026-03-02"]],
+      ["days later", "2026-03-05T18:00:00Z", ["2026-03-05"]],
+    ])(
+      "skips a night that is over when it is taken up %s, and says so",
+      async (_when, now, latest) => {
+        at(now);
+        const start = { outletId: ids.outletA, timezone: JAKARTA };
+        await schedule.start(start, new Date("2026-03-01T15:00:00Z"));
+        expect((await started()).map(([, date]) => date)).toEqual(latest);
+        expect(logged.join()).toMatch(new RegExp(`2026-03-01.*${ids.outletA}.*skipped`));
+      },
+    );
+
+    /** A start as BullMQ hands it to a worker, long after it was due. */
+    const overdue = (due: string) =>
+      queue.add(
+        "start",
+        { outletId: ids.outletA, timezone: JAKARTA },
+        { prevMillis: Date.parse(due) },
+      );
+
+    it("covers the scheduled day when a worker takes it from the queue after midnight", async () => {
+      at("2026-03-01T18:30:00Z");
+      await overdue("2026-03-01T15:00:00Z");
+      startWorker();
+      await expect.poll(async () => (await started()).length).toBe(1);
+      expect(await started()).toEqual([[ids.outletA, "2026-03-01", "schedule"]]);
+      await expectStatus(db, (await allRuns())[0]!.id, "succeeded");
+    });
+
+    it("starts the latest night instead of an older one, when that is still useful", async () => {
+      // The worker stayed up, but could take nothing from the queue since March 1.
+      at("2026-03-02T16:30:00Z");
+      await overdue("2026-03-01T15:00:00Z");
+      startWorker();
+      await expect.poll(async () => (await started()).length).toBe(1);
+      expect(await started()).toEqual([[ids.outletA, "2026-03-02", "schedule"]]);
+      expect(logged.join()).toMatch(/2026-03-01.*skipped/);
+      expect(logged.join()).not.toMatch(/2026-03-02.*skipped/);
+    });
+
+    it("does not call a night skipped that has its run", async () => {
       const start = { outletId: ids.outletA, timezone: JAKARTA };
+      at("2026-03-01T15:00:00Z");
       await schedule.start(start, new Date("2026-03-01T15:00:00Z"));
+      at("2026-03-02T05:00:00Z");
+      await schedule.start(start, new Date("2026-03-01T15:00:00Z"));
+      expect(logged).toEqual([]);
+    });
+
+    it("waits for its time again when an operator promotes it early", async () => {
+      at("2026-03-01T05:00:00Z");
+      await schedule.sync();
+      const due = (await queue.getDelayed()).find((job) => job.data.outletId === ids.outletA)!;
+      const scheduledAt = Number(due.opts.prevMillis);
+      clock = new Date(scheduledAt - 10 * 60 * 60 * 1000);
+      startWorker();
+      await due.promote();
+      await expect.poll(async () => (await queue.getDelayed()).length).toBe(3); // and tomorrow's
+      expect(await queue.getJobState(due.id!)).toBe("delayed");
       expect(await started()).toEqual([]);
-      expect(logged.join()).toMatch(new RegExp(`2026-03-01.*${ids.outletA}.*skipped`));
+    });
+
+    it("is tried again for as long as the night is useful", async () => {
+      const broken = createDb(testDbUrl);
+      await broken.pool.end();
+      const failing = createPipelineSchedule({
+        db: broken.db,
+        redis: redis.redis,
+        runs: createPipelineRuns({ db: broken.db, redis: redis.redis }),
+        now: () => clock,
+        log: () => undefined,
+      });
+      at("2026-03-01T05:00:00Z");
+      await schedule.sync();
+      const due = (await queue.getDelayed()).find((job) => job.data.outletId === ids.outletA)!;
+      clock = new Date(Number(due.opts.prevMillis));
+      startWorker({}, failing);
+      await due.promote();
+      await expect
+        .poll(async () => {
+          const job = await queue.getJob(due.id!);
+          return [await job!.getState(), job!.attemptsMade, job!.delay];
+        })
+        .toEqual(["delayed", 1, 60_000]);
+      // Eight hours of them, from 22:00 to 06:00.
+      expect(due.opts.attempts).toBe(8 * 60);
+      await failing.close();
+    });
+
+    it("is left for another worker by one that has no schedule", async () => {
+      at("2026-03-01T15:30:00Z");
+      const job = await queue.add(
+        "start",
+        { outletId: ids.outletA, timezone: JAKARTA },
+        { prevMillis: Date.parse("2026-03-01T15:00:00Z"), attempts: 3, backoff: 50 },
+      );
+      startWorker({}, undefined);
+      await expect.poll(async () => (await queue.getJob(job.id!))!.attemptsMade).toBe(1);
+      await workers.splice(0)[0]!.stop();
+      startWorker();
+      await expect.poll(async () => (await started()).length).toBe(1);
     });
 
     it("creates one run however often it is repeated, also at the same moment", async () => {

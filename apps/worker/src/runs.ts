@@ -76,7 +76,7 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
     return runId;
   }
 
-  function ofNight(outletId: string, date: string) {
+  function ofBusinessDate(outletId: string, date: string) {
     return and(
       eq(agentRuns.agent, NIGHTLY_PIPELINE_AGENT),
       eq(agentRuns.outletId, outletId),
@@ -88,7 +88,7 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
     const [run] = await from
       .select({ id: agentRuns.id, status: agentRuns.status })
       .from(agentRuns)
-      .where(and(ofNight(outletId, date), eq(agentRuns.trigger, "schedule")));
+      .where(and(ofBusinessDate(outletId, date), eq(agentRuns.trigger, "schedule")));
     return run;
   }
 
@@ -99,7 +99,7 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
       const [inProgress] = await tx
         .select({ id: agentRuns.id })
         .from(agentRuns)
-        .where(and(ofNight(outletId, date), eq(agentRuns.status, "running")));
+        .where(and(ofBusinessDate(outletId, date), eq(agentRuns.status, "running")));
       if (inProgress) return { id: inProgress.id, created: false };
       return { id: await create(tx, "manual", outletId, date), created: true };
     });
@@ -133,24 +133,20 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
       await queue.add(run.id);
       return { runId: run.id };
     },
-    /** The scheduled run of an outlet's night, if there is one. */
+    /** The scheduled run for the outlet and date, if there is one. */
     findScheduled: (outletId: string, date: string) => findScheduled(db, outletId, date),
     /**
-     * Starts the scheduled run of an outlet's night, once: repeating it changes nothing, also when
+     * Starts the scheduled run for the outlet and date, once: repeating it changes nothing, also when
      * the run failed. It only queues a run again whose jobs are not in Redis, and records a failure
-     * that did not reach Postgres. Nothing if the outlet no longer exists.
+     * that did not reach Postgres. False if the outlet no longer exists.
      */
-    async startScheduled(request: {
-      outletId: string;
-      date: string;
-    }): Promise<{ runId: string } | undefined> {
-      const { outletId, date } = request;
+    async startScheduled({ outletId, date }: { outletId: string; date: string }): Promise<boolean> {
       const run = await db.transaction(async (tx) => {
         if (!(await lockOutlet(tx, outletId))) return;
         const existing = await findScheduled(tx, outletId, date);
         return existing ?? { id: await create(tx, "schedule", outletId, date), status: "running" };
       });
-      if (!run) return;
+      if (!run) return false;
       if (run.status === "running") {
         const state = await queue.state(run.id);
         if (state.type === "missing") await queue.add(run.id);
@@ -158,7 +154,7 @@ export function createPipelineRuns({ db, redis, retryDelayMs }: PipelineRunsDeps
           await recordFailure(db, { runId: run.id, step: state.step }, state.reason);
         }
       }
-      return { runId: run.id };
+      return true;
     },
     close: () => queue.close(),
   };

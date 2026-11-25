@@ -19,7 +19,7 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 
 **Jobs in BullMQ**
 
-- A run is one BullMQ Flow on the queue `nightly-pipeline`: Report is the root and Ingest the deepest child, all added together. A step that enqueued the next one would leave a gap between "done" and "next enqueued" for a crash to land in. Jobs carry only the run id and the step name, and their ids are derived from them.
+- A run is one BullMQ Flow on the queue `nightly-pipeline`: Report is the root and Ingest the deepest child, all added together. A step that enqueued the next one would leave a gap between "done" and "next enqueued" for a crash to land in. A step's job carries only the run id and the step name, and its id is derived from them.
 - The run is written to Postgres first, then queued. A run in progress whose jobs are not in Redis is queued again when its creation is repeated; a step that already has a result returns without running.
 - BullMQ 6 on Redis, with `ioredis`, pinned to exact versions. Concurrency 2. Finished jobs stay in Redis for 14 days; Postgres keeps the history.
 
@@ -44,8 +44,9 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 **Schedule (#81)**
 
 - One BullMQ job scheduler per outlet at 22:00 in its timezone, on the same queue. Its job, `start`, creates the run. The business date is the local day of the scheduled time, in the timezone the start was scheduled in, never of the current time.
-- A missed night is useful until 06:00 outlet time. A start taken up later, or for a night that is no longer the latest, is skipped and logged: after an outage BullMQ starts the oldest missed night.
-- When it starts, the worker makes the schedulers match the outlets table, then catches up each outlet's latest 22:00 by the same rule. An outlet with an invalid timezone is logged and skipped. Outlets changed while the worker runs are picked up at its next start.
+- A missed night is useful until 06:00 outlet time. A start taken up later is skipped and logged. One for a night that is no longer the latest is skipped too, and the latest is caught up instead: after an outage BullMQ starts the oldest missed night, and schedules the next one only after that.
+- A start that fails, as when Postgres is down, is tried every minute for 8 hours, so until the night is too late. One promoted by hand before its time goes back to wait, because it would take tonight's place; `pnpm pipeline:run` starts a run at any time.
+- When it starts, the worker makes the schedulers match the outlets table, then catches up each outlet's latest 22:00 by the same rule. If it cannot, it does not start. An outlet with an invalid timezone is logged and has no schedule. Outlets changed while the worker runs are picked up at its next start.
 - Updating a BullMQ scheduler drops its pending start, even one that is overdue or already waiting for a worker (checked on BullMQ 6.7.7 with a real Redis). So the sync leaves unchanged schedulers alone. A timezone change does replace the pending start; catch-up covers the night if it was missed.
 - A scheduled run is created once per outlet and date, whatever its status: a failed one is not started again by itself. A manual run for that date does not block it.
 
@@ -71,7 +72,7 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 - A worker thought dead may still finish its step. Its result is dropped even if the replacement has not finished.
 - A step that ignores its abort signal may still be running when its retry starts. Its result and rows are dropped, but not what it did elsewhere, so steps must pass the signal on and change nothing outside `onSave`.
 - Retrying an old failed job is allowed while a newer run of the same outlet and date is in progress. Both finish, and readers use the latest successful one.
-- BullMQ decides when a step has failed; the worker then records it. If that record is lost (Postgres was down), the run looks in progress until `pnpm pipeline:run` is repeated, which records the failure and starts a new run.
-- A crash between Postgres and Redis leaves a run in progress without jobs until its creation is repeated.
+- BullMQ decides when a step has failed; the worker then records it. If that record is lost (Postgres was down), the run looks in progress until `pnpm pipeline:run` is repeated, which records the failure and starts a new run. For a scheduled run, a worker started before 06:00 records it too, without a new run.
+- A crash between Postgres and Redis leaves a run in progress without jobs until its creation is repeated. For a scheduled run that is the next try of its start, or a worker start, before 06:00.
 - `agent_runs.outlet_id` references `outlets`, so the mock-data reset (ADR 0006, amended) now empties `agent_runs` too, Copilot rows included. The rows pointing at them were already emptied by it.
 - Tests run on real Redis (`TEST_REDIS_URL`) and Postgres, under a key prefix of their own, and skip without them. CI has both.

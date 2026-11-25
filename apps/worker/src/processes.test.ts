@@ -29,11 +29,14 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
   let pool: Awaited<ReturnType<typeof setupTestDb>>["pool"];
   let redis: ReturnType<typeof testRedis>;
   let settings: Record<string, string>;
+  // Read once: the hour may turn while the tests run.
+  const DAYTIME = zoneWhereItIs(12);
+  const LATE = zoneWhereItIs(23);
 
   beforeAll(async () => {
     ({ db, pool } = await setupTestDb());
     // In the day, so that a starting worker has no missed night to catch up.
-    await db.update(outlets).set({ timezone: zoneWhereItIs(12) });
+    await db.update(outlets).set({ timezone: DAYTIME });
     redis = testRedis();
     settings = {
       PATH: process.env.PATH!,
@@ -89,8 +92,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
   });
 
   it("the worker schedules every outlet, and catches up a night that was just missed", async () => {
-    const late = zoneWhereItIs(23);
-    await db.update(outlets).set({ timezone: late }).where(eq(outlets.id, ids.outletB));
+    await db.update(outlets).set({ timezone: LATE }).where(eq(outlets.id, ids.outletB));
     const queue = new Queue(PIPELINE_QUEUE, queueOptions(redis.redis));
     const scheduledRuns = () =>
       db.select().from(agentRuns).where(eq(agentRuns.trigger, "schedule"));
@@ -103,12 +105,12 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
         .toBe("succeeded");
       expect((await scheduledRuns()).map((run) => run.outletId)).toEqual([ids.outletB]);
       expect((await queue.getJobSchedulers()).map(({ tz }) => tz).sort()).toEqual(
-        [late, zoneWhereItIs(12)].sort(),
+        [LATE, DAYTIME].sort(),
       );
       worker.child.kill("SIGTERM");
       expect(await worker.exit).toBe(0);
     } finally {
-      await db.update(outlets).set({ timezone: zoneWhereItIs(12) });
+      await db.update(outlets).set({ timezone: DAYTIME });
       await queue.close();
     }
   });

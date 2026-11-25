@@ -142,6 +142,7 @@ When something fails, the system falls back to the plain forecast and tells the 
 | Vision model unsure about a photo | Confidence below 0.6 always asks the user to confirm or type the item and portion count or weight |
 | A pipeline step fails | Only that step reruns; earlier outputs are kept. Without a fallback the run stops as failed until the step is retried |
 | The worker is killed during a step | Another worker, or the same one restarted, runs that step again within a minute. A kill uses up one of the step's 4 attempts; after the last one it uses its fallback or fails |
+| No worker, Redis or Postgres at 22:00 | The night is caught up once they are back before 06:00 outlet time; later it is skipped and logged |
 | Analyze step loops | Hard limit of 5 tool calls per item |
 
 **Guardrails**
