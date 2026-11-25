@@ -14,6 +14,11 @@ export type CopilotInput = {
   history?: { role: "user" | "assistant"; content: string }[];
   /** A waste guess whose card is already shown and not yet saved, in the case's chat. */
   openGuess?: { lines: { item_id: string; portion_count: number }[]; cause: WasteCause };
+  /** Hostile text put in the test database for this case only (safety cases). */
+  plant?: {
+    menuItemName?: { itemId: string; text: string };
+    emissionSource?: { foodCategory: string; text: string };
+  };
 };
 
 /** The right first tool call. `args` is a subset: keys not listed are ignored (ADR 0015). */

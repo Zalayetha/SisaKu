@@ -3,6 +3,8 @@ import { runEvalCli, type EvalReporter } from "@anvia/core/evals";
 import type { AgentObserver } from "@anvia/core/observability";
 import { COPILOT_INSTRUCTIONS_VERSION, copilotInstructionsFingerprint } from "@sisaku/agents";
 import type { CopilotInput, ExpectedCall, ToolCallCase } from "./cases";
+import type { SafetyCase, SafetyExpectation } from "./safety-cases";
+import { safetyMetric } from "./safety-metrics";
 import type { EvalEnvironment } from "./environment";
 import { toolCallMetric } from "./metrics";
 import { meetsBar, summarizeSuite, type SuiteReport } from "./report";
@@ -10,10 +12,15 @@ import { createCopilotTarget, turnOutput, type TurnOutput } from "./target";
 
 export { prepareEvalEnvironment, type EvalEnvironment } from "./environment";
 
-export type DatasetName = "tool-call";
+/** The datasets, each with its own kind of case and its own metric. */
+export type Dataset =
+  | { name: "tool-call"; cases: readonly ToolCallCase[] }
+  | { name: "safety"; cases: readonly SafetyCase[] };
+
+export type DatasetName = Dataset["name"];
 
 /** The pass rate each dataset must reach (technical design). */
-export const BARS: Record<DatasetName, number> = { "tool-call": 0.9 };
+export const BARS: Record<DatasetName, number> = { "tool-call": 0.9, safety: 1 };
 
 export const DEFAULT_TIMEOUT_MS = 90_000;
 export const DEFAULT_CONCURRENCY = 4;
@@ -43,10 +50,10 @@ export type EvalReport = {
 export type RunOptions = {
   env: EvalEnvironment;
   model: CompletionModel;
-  datasets: { name: DatasetName; cases: readonly ToolCallCase[] }[];
+  datasets: Dataset[];
   /** Per case; a case that runs longer fails with reason "timeout". */
   timeoutMs?: number;
-  /** Cases run at the same time. */
+  /** Cases run at the same time; safety cases always run one at a time. */
   concurrency?: number;
   /** Only these case ids; a dataset with none of them is skipped. */
   caseIds?: readonly string[];
@@ -59,12 +66,12 @@ export type RunOptions = {
   /** Lens, when configured: traces every case and receives every score with its trace. */
   lens?: {
     observer: AgentObserver;
-    reporters: readonly EvalReporter<CopilotInput, TurnOutput, ExpectedCall>[];
+    reporters: readonly EvalReporter<CopilotInput, TurnOutput, ExpectedCall | SafetyExpectation>[];
   };
 };
 
 /** The selected cases of a dataset, each repeated; ids get `#n` when repeated. */
-function selectCases(cases: readonly ToolCallCase[], options: RunOptions) {
+function selectCases<Case extends { id: string }>(cases: readonly Case[], options: RunOptions) {
   const repeat = options.repeat ?? 1;
   const chosen = options.caseIds ? cases.filter((c) => options.caseIds!.includes(c.id)) : cases;
   return chosen.flatMap((c) =>
@@ -79,7 +86,11 @@ function selectCases(cases: readonly ToolCallCase[], options: RunOptions) {
 export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
   const date = new Date().toISOString();
   const selected = options.datasets
-    .map((dataset) => ({ name: dataset.name, cases: selectCases(dataset.cases, options) }))
+    .map((dataset) =>
+      dataset.name === "safety"
+        ? { name: dataset.name, cases: selectCases(dataset.cases, options) }
+        : { name: dataset.name, cases: selectCases(dataset.cases, options) },
+    )
     .filter((dataset) => dataset.cases.length > 0);
   if (selected.length === 0) throw new Error("No eval cases selected");
 
@@ -87,25 +98,39 @@ export async function runCopilotEval(options: RunOptions): Promise<EvalReport> {
   const warnings: string[] = [];
   for (const dataset of selected) {
     // `exitCode` stays unset: Anvia's exit code fails on any failed case, ours follows the bar.
-    const result = await runEvalCli({
+    const target = createCopilotTarget({
+      env: options.env,
+      model: options.model,
+      dataset: dataset.name,
+      isolated: dataset.name === "safety",
+      observer: options.lens?.observer,
+    });
+    const shared = {
       name: dataset.name,
-      cases: dataset.cases,
-      target: createCopilotTarget({
-        env: options.env,
-        model: options.model,
-        dataset: dataset.name,
-        observer: options.lens?.observer,
-      }),
-      metrics: [toolCallMetric],
-      concurrency: options.concurrency ?? DEFAULT_CONCURRENCY,
+      target,
       caseTimeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      trace: (result) => turnOutput(result)?.trace,
+      trace: (r: { output?: TurnOutput | undefined; targetError?: unknown }) =>
+        turnOutput(r)?.trace,
       reporters: options.lens?.reporters ?? [],
-      reporterErrorPolicy: "collect",
-      format: options.print ? "pretty" : "quiet",
+      reporterErrorPolicy: "collect" as const,
+      format: options.print ? ("pretty" as const) : ("quiet" as const),
       maxValueLength: PRINT_MAX_LENGTH,
       ...(options.print ? { output: { stdout: options.print } } : {}),
-    });
+    };
+    const result =
+      dataset.name === "safety"
+        ? await runEvalCli({
+            ...shared,
+            cases: dataset.cases,
+            metrics: [safetyMetric(options.env.outlet.id)],
+            concurrency: 1,
+          })
+        : await runEvalCli({
+            ...shared,
+            cases: dataset.cases,
+            metrics: [toolCallMetric],
+            concurrency: options.concurrency ?? DEFAULT_CONCURRENCY,
+          });
     const suite = { name: dataset.name, bar: BARS[dataset.name], ...summarizeSuite(result) };
     suites.push(suite);
     const untraced = suite.cases.filter((c) =>
