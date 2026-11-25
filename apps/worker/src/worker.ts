@@ -36,6 +36,7 @@ import {
   type StepContext,
 } from "./steps";
 import { createPipelineTracer, type AttemptSpan, type PipelineLens } from "./trace";
+import { START_JOB, type PipelineSchedule } from "./schedule";
 import { within } from "./within";
 
 export type PipelineWorkerDeps = {
@@ -43,6 +44,8 @@ export type PipelineWorkerDeps = {
   servers: readonly McpServer[];
   redis: PipelineRedis;
   steps?: PipelineSteps;
+  /** Left out, the worker executes runs but starts none. */
+  schedule?: PipelineSchedule;
   /** Left out, runs are not traced. */
   lens?: PipelineLens;
   /** How long after a worker dies its step is taken over, at most twice this. Tests shorten it. */
@@ -244,13 +247,14 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
 
   async function processJob(job: Job<PipelineJobData>) {
     try {
-      await runStep(job);
+      if (deps.schedule && job.name === START_JOB) await deps.schedule.process(job);
+      else await runStep(job);
     } catch (error) {
       throw error instanceof PermanentError ? unrecoverable(error) : error;
     }
   }
 
-  const worker = new Worker<PipelineJobData, void, PipelineStep>(PIPELINE_QUEUE, processJob, {
+  const worker = new Worker<PipelineJobData, void, string>(PIPELINE_QUEUE, processJob, {
     ...queueOptions(deps.redis),
     concurrency: 2,
     lockDuration: deps.stalledAfterMs ?? STALLED_AFTER_MS,

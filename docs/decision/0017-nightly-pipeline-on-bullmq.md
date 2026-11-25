@@ -41,6 +41,14 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 - A step that reached its fallback earlier, by a permanent error or after a retry by hand, runs again if its worker is killed during the fallback, within its 4 attempts. The record does not say that its attempts had run out. This is harmless, because a step saves only through `onSave`, with its result.
 - The record names its current attempt by its start time, and only that attempt may save, use the fallback, or record a failure. A worker thought dead that finishes late changes nothing.
 
+**Schedule (#81)**
+
+- One BullMQ job scheduler per outlet at 22:00 in its timezone, on the same queue. Its job, `start`, creates the run. The business date is the local day of the scheduled time, in the timezone the start was scheduled in, never of the current time.
+- A missed night is useful until 06:00 outlet time. A start taken up later, or for a night that is no longer the latest, is skipped and logged: after an outage BullMQ starts the oldest missed night.
+- When it starts, the worker makes the schedulers match the outlets table, then catches up each outlet's latest 22:00 by the same rule. An outlet with an invalid timezone is logged and skipped. Outlets changed while the worker runs are picked up at its next start.
+- Updating a BullMQ scheduler drops its pending start, even one that is overdue or already waiting for a worker (checked on BullMQ 6.7.7 with a real Redis). So the sync leaves unchanged schedulers alone. A timezone change does replace the pending start; catch-up covers the night if it was missed.
+- A scheduled run is created once per outlet and date, whatever its status: a failed one is not started again by itself. A manual run for that date does not block it.
+
 **Tracing (#80)**
 
 - One Lens trace per run. Its id is generated and stored when the run is created, so every attempt of every step joins it, whichever worker runs it. Each step attempt is a root span of that trace, made with Anvia's pipeline observer (`pipeline.<step>`), also when the step calls no LLM. A run-level span would have to stay open across processes, so there is none. Lens shows the five root spans as one trace (checked by hand on a local Lens, 2026-11-25).
