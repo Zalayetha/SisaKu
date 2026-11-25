@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@anvia/mcp": "1.2.7",
+    "@sisaku/kitchen-mcp": "workspace:*",
     "tsx": "^4.19.0"
   }
 }

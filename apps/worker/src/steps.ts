@@ -1,7 +1,8 @@
 import type { AgentTraceOptions } from "@anvia/core/observability";
 import type { McpServer } from "@anvia/core/mcp";
-import { PIPELINE_STEPS, type PipelineStep } from "@sisaku/db";
+import type { PipelineStep } from "@sisaku/db";
 import * as z from "zod";
+import { ingestStep } from "./ingest";
 
 /** The pipeline run a step works for. */
 export type PipelineRun = {
@@ -47,6 +48,10 @@ function stubStep(name: PipelineStep): StepDefinition<z.infer<typeof stubOutput>
   return { name, output: stubOutput, run: async () => ({ stub: true }) };
 }
 
-export const DEFAULT_STEPS = Object.fromEntries(
-  PIPELINE_STEPS.map((name) => [name, stubStep(name)]),
-) as unknown as PipelineSteps;
+export const DEFAULT_STEPS: PipelineSteps = {
+  ingest: ingestStep,
+  analyze: stubStep("analyze"),
+  forecast: stubStep("forecast"),
+  recommend: stubStep("recommend"),
+  report: stubStep("report"),
+};
