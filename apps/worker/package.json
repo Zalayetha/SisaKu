@@ -3,10 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
   "scripts": {
-    "build": "tsup src/index.ts --format esm --clean --tsconfig tsconfig.build.json --out-dir dist && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "pipeline:run": "tsx --env-file-if-exists=../../.env src/pipeline-run.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@anvia/core": "1.21.0",
+    "@sisaku/agents": "workspace:*",
+    "@sisaku/db": "workspace:*",
+    "bullmq": "6.7.7",
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "6.0.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@anvia/mcp": "1.2.7",
+    "@sisaku/kitchen-mcp": "workspace:*",
+    "tsx": "^4.19.0"
   }
 }

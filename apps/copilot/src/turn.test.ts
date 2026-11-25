@@ -45,7 +45,7 @@ import {
 import { actionId, parseActionId } from "./waste/card";
 import { createChartRenderer } from "./charts/render";
 import { FakePhotoStore, RecordingRenderer, RecordingScorer } from "./testing/fakes";
-import { connectInMemoryServers } from "./testing/mcp-servers";
+import { connectInMemoryServers } from "@sisaku/agents/testing";
 import { createUserLookup, type Db } from "./users";
 import { GuessStore } from "./waste/guess";
 

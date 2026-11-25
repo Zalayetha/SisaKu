@@ -22,7 +22,9 @@
     "db:migrate": "pnpm --filter @sisaku/db db:migrate",
     "db:rollback": "pnpm --filter @sisaku/db db:rollback",
     "db:reset": "pnpm --filter @sisaku/db db:reset",
-    "db:import-csv": "pnpm --filter @sisaku/db db:import-csv"
+    "db:import-csv": "pnpm --filter @sisaku/db db:import-csv",
+    "worker": "pnpm --filter @sisaku/worker start",
+    "pipeline:run": "pnpm --filter @sisaku/worker pipeline:run"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
