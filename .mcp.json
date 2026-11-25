@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "kitchen": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": [
+        "--dir",
+        "packages/kitchen-mcp",
+        "exec",
+        "tsx",
+        "--env-file-if-exists=../../.env",
+        "src/stdio.ts"
+      ],
+      "env": {}
+    },
+    "impact": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": [
+        "--dir",
+        "packages/impact-mcp",
+        "exec",
+        "tsx",
+        "--env-file-if-exists=../../.env",
+        "src/stdio.ts"
+      ],
+      "env": {}
+    }
+  }
+}
