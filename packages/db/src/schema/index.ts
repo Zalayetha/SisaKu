@@ -11,6 +11,7 @@ import {
   foreignKey,
   pgTable,
   unique,
+  uniqueIndex,
   primaryKey,
   text,
   timestamp,
@@ -48,6 +49,21 @@ export const pickupStatus = pgEnum("pickup_status", [
   "submitted",
 ]);
 export const agentRunStatus = pgEnum("agent_run_status", ["running", "succeeded", "failed"]);
+
+/** The nightly pipeline's steps, in the order they run (ADR 0017). */
+export const PIPELINE_STEPS = ["ingest", "analyze", "forecast", "recommend", "report"] as const;
+export type PipelineStep = (typeof PIPELINE_STEPS)[number];
+export const pipelineStep = pgEnum("pipeline_step", PIPELINE_STEPS);
+export const pipelineJobStatus = pgEnum("pipeline_job_status", [
+  "pending",
+  "running",
+  "succeeded",
+  "degraded",
+  "failed",
+]);
+
+/** `agent_runs.agent` of a pipeline run. */
+export const NIGHTLY_PIPELINE_AGENT = "nightly-pipeline";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
@@ -124,15 +140,60 @@ export const prepLogs = pgTable(
   ],
 );
 
-export const agentRuns = pgTable("agent_runs", {
+/**
+ * One row per Copilot turn that saved something, or per pipeline run (one outlet, one business
+ * date). Outlet, business date, finish time and error are filled for pipeline runs only.
+ */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agent: text("agent").notNull(),
+    trigger: text("trigger").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    status: agentRunStatus("status").notNull().default("running"),
+    traceId: text("trace_id"), // Anvia Lens
+    instructionsVersion: text("instructions_version"), // the agent's instructions (changelog)
+    costUsd: numeric("cost_usd", { precision: 10, scale: 4 }),
+    outletId: uuid("outlet_id").references(() => outlets.id),
+    businessDate: date("business_date"), // the outlet-local day the run covers
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    error: text("error"),
+  },
+  (t) => [
+    uniqueIndex("agent_runs_scheduled_pipeline_run_unique")
+      .on(t.outletId, t.businessDate)
+      .where(sql`${t.agent} = 'nightly-pipeline' and ${t.trigger} = 'schedule'`),
+  ],
+);
+
+/** The state of one step of a pipeline run. */
+export const pipelineJobs = pgTable(
+  "pipeline_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id),
+    step: pipelineStep("step").notNull(),
+    status: pipelineJobStatus("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [unique("pipeline_jobs_run_id_step_unique").on(t.runId, t.step)],
+);
+
+/** What a step produced, in the step's own shape; a summary when the step has its own table. */
+export const pipelineJobResults = pgTable("pipeline_job_results", {
   id: uuid("id").primaryKey().defaultRandom(),
-  agent: text("agent").notNull(),
-  trigger: text("trigger").notNull(),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-  status: agentRunStatus("status").notNull().default("running"),
-  traceId: text("trace_id"), // Anvia Lens
-  instructionsVersion: text("instructions_version"), // the agent's instructions (changelog)
-  costUsd: numeric("cost_usd", { precision: 10, scale: 4 }),
+  jobId: uuid("job_id")
+    .notNull()
+    .unique()
+    .references(() => pipelineJobs.id),
+  output: jsonb("output").notNull(),
+  createdAt: createdAt(),
 });
 
 export const wasteEntries = pgTable(

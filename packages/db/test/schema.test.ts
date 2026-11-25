@@ -20,7 +20,7 @@ const tables = async (pool: pg.Pool) =>
     )
   ).rows.map((r) => r.table_name);
 
-it.skipIf(!url)("migrations apply, create 11 tables, and roll back", async () => {
+it.skipIf(!url)("migrations apply, create 13 tables, and roll back", async () => {
   const pool = new pg.Pool({ connectionString: url });
   try {
     run("up");
@@ -31,6 +31,8 @@ it.skipIf(!url)("migrations apply, create 11 tables, and roll back", async () =>
       "menu_items",
       "outlets",
       "pickup_requests",
+      "pipeline_job_results",
+      "pipeline_jobs",
       "prep_logs",
       "recommendations",
       "sales",

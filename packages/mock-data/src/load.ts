@@ -13,7 +13,8 @@ function chunks<T>(rows: T[]): T[][] {
 /**
  * Loads a dataset into Postgres in one transaction.
  * `reset` truncates the mock-data tables (and anything referencing them) first, so re-running is idempotent.
- * Emission factors and agent runs are left untouched.
+ * Agent runs, and with them pipeline jobs and results, reference outlets and are emptied too (ADR
+ * 0017); jobs of those runs still in Redis fail. Emission factors are left untouched.
  */
 export async function loadDataset(data: MockDataset, opts: { url?: string; reset?: boolean } = {}) {
   const { db, pool } = createDb(opts.url);

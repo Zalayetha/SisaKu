@@ -51,7 +51,7 @@ The pipeline runs without anyone asking; the Copilot acts only when a person mes
 | Recommend | Turns forecasts into prep quantities with confidence; flags changes over 30% for approval; stretch: checks donatable surplus and drafts a pickup | `get_menu`, `search_knowledge`, `draft_pickup` |
 | Report | Writes the daily brief with Rupiah, kg and CO₂e and citations; sends it to the manager on Telegram. On Mondays it also sends the weekly owner report | `compute_co2e` |
 
-Each step is its own BullMQ job, so a failed step reruns alone.
+Each step is its own BullMQ job, so a failed step reruns alone (ADR 0017). The Report step writes the brief; sending it is a separate job, so a retried Report never sends twice.
 
 **Kitchen Copilot (on demand)**
 
@@ -111,7 +111,7 @@ The stack is the Anvia ecosystem for everything agent-related, plus a small conv
 
 ## Data model
 
-Eleven tables in one Postgres database (RAG chunks live in Qdrant, not Postgres); all waste is stored in kg, and every agent output links to the run that produced it.
+Thirteen tables in one Postgres database (RAG chunks live in Qdrant, not Postgres); all waste is stored in kg, and every agent output links to the run that produced it.
 
 | Table | Key fields |
 | --- | --- |
@@ -125,9 +125,11 @@ Eleven tables in one Postgres database (RAG chunks live in Qdrant, not Postgres)
 | `recommendations` | id, run_id, forecast_id, prep_qty, confidence, status (pending / approved / rejected), approved_by → users |
 | `pickup_requests` | id, outlet_id, foodbank_id, items, status, created_at, approved_by → users |
 | `emission_factors` | food_category, production_kg_co2e_per_kg, landfill_kg_co2e_per_kg, source |
-| `agent_runs` | id, agent, trigger, started_at, status, trace_id (Anvia Lens), cost_usd |
+| `agent_runs` | id, agent, trigger, started_at, status, trace_id (Anvia Lens), cost_usd; for pipeline runs also outlet_id, business_date, finished_at, error |
+| `pipeline_jobs` | id, run_id, step, status (pending / running / succeeded / degraded / failed), attempts, error, started_at, finished_at |
+| `pipeline_job_results` | id, job_id, output (JSON, in the step's own shape), created_at |
 
-Notes: RAG chunks and embeddings are stored in the Qdrant `knowledge` collection (payload: corpus, content, source_ref). Roles are an enum, not a separate table. `agent_runs` is a thin link table; full traces live in Anvia Lens. Recommendations read the baseline from their forecast, so it is stored once.
+Notes: RAG chunks and embeddings are stored in the Qdrant `knowledge` collection (payload: corpus, content, source_ref). Roles are an enum, not a separate table. `agent_runs` is a thin link table; full traces live in Anvia Lens. A pipeline run is one `agent_runs` row per outlet and business date, with one `pipeline_jobs` row per step. Recommendations read the baseline from their forecast, so it is stored once.
 
 ## Failure handling and guardrails
 
@@ -135,10 +137,10 @@ When something fails, the system falls back to the plain forecast and tells the 
 
 | Failure | What happens |
 | --- | --- |
-| LLM call times out or errors | BullMQ retries the step up to 3 times; if it still fails, the plain statistical forecast is used and the brief says "AI adjustment unavailable today" |
+| LLM call times out or errors | BullMQ retries the step up to 3 times; if it still fails, a step with a fallback uses it and counts as degraded (Forecast: the plain statistical forecast, and the brief says "AI adjustment unavailable today") |
 | No waste logged for a day | Pipeline still runs; the morning brief asks the manager to log yesterday's waste |
 | Vision model unsure about a photo | Confidence below 0.6 always asks the user to confirm or type the item and portion count or weight |
-| A pipeline step fails | Only that step reruns; earlier outputs are kept |
+| A pipeline step fails | Only that step reruns; earlier outputs are kept. Without a fallback the run stops as failed until the step is retried |
 | Analyze step loops | Hard limit of 5 tool calls per item |
 
 **Guardrails**

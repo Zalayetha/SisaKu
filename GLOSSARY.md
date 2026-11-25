@@ -20,6 +20,22 @@ _Avoid_: Bot, chatbot, assistant
 The agent that runs on its own every night per outlet and produces the morning brief. Nobody prompts it.
 _Avoid_: Cron agent, batch job
 
+**Pipeline run**:
+One execution of the nightly pipeline for one outlet and one business date, started by the schedule or by hand.
+_Avoid_: Job, batch, execution
+
+**Step**:
+One of the five parts of a pipeline run, in order: Ingest, Analyze, Forecast, Recommend, Report. Each can be retried alone.
+_Avoid_: Stage, task, phase
+
+**Business date**:
+The outlet-local day a pipeline run covers. It is fixed when the run is created, and the run forecasts the day after it.
+_Avoid_: Run date, today
+
+**Degraded**:
+Said of a step that could not finish and used its fallback instead, such as the plain baseline forecast. The pipeline run still succeeds.
+_Avoid_: Partial, skipped
+
 ## Waste
 
 **Waste entry**:
