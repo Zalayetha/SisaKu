@@ -45,7 +45,7 @@ The pipeline runs without anyone asking; the Copilot acts only when a person mes
 
 | Step | What the agent does | Tools |
 | --- | --- | --- |
-| Ingest | Pulls the day's sales, prep log and waste entries; notes gaps such as no waste logged | `get_sales`, `get_prep_log`, `query_waste` |
+| Ingest | Pulls the day's sales, prep log and waste entries; notes gaps such as no waste logged | `get_menu`, `get_sales`, `get_prep_log`, `query_waste` |
 | Analyze | Groups waste by item and cause; for any item above double its 14-day average, investigates (sales drop, over-prep, spoilage) before naming a cause; max 5 tool calls | `query_waste`, `get_sales`, `search_knowledge` |
 | Forecast | Computes a plain statistical forecast per item (e.g. average of the last 4 same weekdays), then the LLM may adjust it for holidays, Ramadan or tomorrow's rain (Open-Meteo MCP) with a stated reason; new outlets with little history fall back to the manager's usual prep, shown as low confidence | `get_sales`, `get_calendar`, Open-Meteo MCP tools |
 | Recommend | Turns forecasts into prep quantities with confidence; flags changes over 30% for approval; stretch: checks donatable surplus and drafts a pickup | `get_menu`, `search_knowledge`, `draft_pickup` |
