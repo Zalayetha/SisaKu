@@ -58,4 +58,4 @@ Every change to the Kitchen Copilot's instructions bumps `COPILOT_INSTRUCTIONS_V
 - Each run costs model calls (29 turns for tool-call correctness since #69, 26 before), and model output varies, so a single run is noisy; repeats are for deliberate prompt work.
 - Until #62, a regression shows only when someone runs the eval.
 - The eval exercises only text messages; photo guesses and confidence calibration are not covered.
-- Turn handler tests and evals share their in-process MCP servers and fakes (`src/testing/mcp-servers.ts` and `src/testing/fakes.ts`).
+- Turn handler tests and evals share their in-process MCP servers (`@sisaku/agents/testing`, since #77 shared with the worker) and fakes (`src/testing/fakes.ts`).

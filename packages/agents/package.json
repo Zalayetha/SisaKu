@@ -15,6 +15,13 @@
     "openai": "7.62.0"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/mcp-servers.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "@sisaku/db": "workspace:*",
+    "@sisaku/impact-mcp": "workspace:*",
+    "@sisaku/kitchen-mcp": "workspace:*"
   }
 }

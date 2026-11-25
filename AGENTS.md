@@ -95,6 +95,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0014: Waste logging confirmation gate](decision/0014-waste-logging-confirmation-gate.md)
 - [0015: Copilot data answers and charts](decision/0015-copilot-data-answers-and-charts.md)
 - [0016: Copilot evals](decision/0016-copilot-evals.md)
+- [0017: Nightly pipeline on BullMQ](decision/0017-nightly-pipeline-on-bullmq.md)
 
 ### Product
 
