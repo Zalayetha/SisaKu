@@ -23,6 +23,7 @@ ZALS-16 lets staff log waste in the Kitchen Copilot by sending a photo or a text
 - The same Copilot agent reads the photo (as image input) and the text; confidence is the model's own estimate. A separate structured vision step can replace this later without changing the gate.
 - `logged_at` is the message time unless the text names another time. Items that are not on the menu are not guessed.
 - A text message replaces the chat's open guess only when the model marks its proposal as a correction (`corrects_open_guess`); otherwise it starts a new guess, so a separate report never inherits another guess's photo. A replaced card is edited to say so and its buttons stop working. Since 2026-11-25 (#69), a text proposal marked as a correction with no open guess is refused and points the model to `list_entries` and `update_entry`: a new guess would be saved next to the entry the user wants corrected.
+- A typed "simpan" is not a confirmation (added 2026-11-25, #74). While the user's card is open, a message that is only `simpan` or `[simpan]` is answered by fixed code, without the model: not saved yet, tap Simpan. The model had answered "Tersimpan." with nothing saved. Saving on the typed word was rejected, since it may be about an older card. Longer wording is left to rule 8.
 
 **Drafts and photos**
 

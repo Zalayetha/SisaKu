@@ -39,6 +39,8 @@ import {
   NOT_READY_TEXT,
   NOT_YOURS_TEXT,
   SAVE_FAILED_TEXT,
+  TYPED_SAVE_NOT_READY_TEXT,
+  TYPED_SAVE_TEXT,
 } from "./waste/actions";
 import { actionId, parseActionId } from "./waste/card";
 import { createChartRenderer } from "./charts/render";
@@ -1200,6 +1202,57 @@ describe.skipIf(!testDbUrl)("Copilot turn handler", () => {
       expect(
         await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[0]!.traceId)),
       ).toEqual([]);
+    });
+
+    it.each(["simpan", "[Simpan]", " SIMPAN! "])(
+      "answers a typed %j without the model, and a tap still saves the open card",
+      async (typed) => {
+        const observer = new RecordingObserver();
+        const model = new ScriptedModel([
+          propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "over_prep" }),
+          { text: "ok" },
+          { text: "Siap." },
+        ]);
+        const handle = handler(model, observer);
+        const card = await handle(message("nasi 3 porsi kebuang, kebanyakan masak"));
+        const reply = asReply(await handle(message(typed)));
+        expect(reply.text).toBe(TYPED_SAVE_TEXT);
+        expect(model.requests).toHaveLength(2); // the card's turn only
+        expect(
+          await db.select().from(agentRuns).where(eq(agentRuns.traceId, observer.runs[0]!.traceId)),
+        ).toEqual([]);
+
+        const saved = editOf(await handle(tap(button(card, "Simpan"))));
+        expect(saved.text).toContain("Nasi Putih: 3 porsi");
+        // The model sees the exchange, so it knows nothing was saved by the typed word.
+        await handle(message("oke"));
+        expect(JSON.stringify(model.requests[2]!.chatHistory)).toContain(TYPED_SAVE_TEXT);
+      },
+    );
+
+    it("asks to complete a card that still needs its cause when simpan is typed", async () => {
+      const model = new ScriptedModel([
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }] }),
+        { text: "ok" },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      await handle(message("nasi 3 porsi kebuang"));
+      const reply = asReply(await handle(message("simpan")));
+      expect(reply.text).toBe(TYPED_SAVE_NOT_READY_TEXT);
+    });
+
+    it("leaves simpan to the model when no card is open, and longer messages always", async () => {
+      const model = new ScriptedModel([
+        { text: "Simpan apa?" },
+        propose({ lines: [{ item_id: ids.nasi, portion_count: 3 }], cause: "over_prep" }),
+        { text: "ok" },
+        { text: "Belum tersimpan, ketuk Simpan ya." },
+      ]);
+      const handle = handler(model, new RecordingObserver());
+      expect(asReply(await handle(message("simpan"))).text).toBe("Simpan apa?");
+      await handle(message("nasi 3 porsi kebuang, kebanyakan masak"));
+      const reply = asReply(await handle(message("iya simpan aja ya")));
+      expect(reply.text).toBe("Belum tersimpan, ketuk Simpan ya.");
     });
 
     it("refuses a correction when no guess is open, so saved waste is not logged twice", async () => {

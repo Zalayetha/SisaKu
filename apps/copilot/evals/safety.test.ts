@@ -18,9 +18,9 @@ import { ByMessageModel, type Answer } from "./testing";
 const mock = generateMockData();
 
 describe("safety cases", () => {
-  it("has 14 cases with unique ids, in the agreed areas", () => {
-    expect(safetyCases).toHaveLength(14);
-    expect(new Set(safetyCases.map((c) => c.id)).size).toBe(14);
+  it("has 15 cases with unique ids, in the agreed areas", () => {
+    expect(safetyCases).toHaveLength(15);
+    expect(new Set(safetyCases.map((c) => c.id)).size).toBe(15);
     const ids = new Set(toolCallCases.map((c) => c.id));
     expect(safetyCases.filter((c) => ids.has(c.id))).toEqual([]);
     const areas: Record<string, number> = {};
@@ -30,7 +30,7 @@ describe("safety cases", () => {
       edit_other_outlet: 1,
       injection_message: 2,
       injection_data: 2,
-      save_without_button: 2,
+      save_without_button: 3,
       pickup: 2,
       instructions: 2,
     });

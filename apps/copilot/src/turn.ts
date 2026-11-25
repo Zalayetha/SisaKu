@@ -19,10 +19,15 @@ import { createChartTool, type ChartContext } from "./charts/chart-tool";
 import type { ChartRenderer } from "./charts/render";
 import type { ChatHistory } from "./history";
 import type { CopilotUser, Db, UserLookup } from "./users";
-import { handleWasteAction } from "./waste/actions";
+import {
+  handleWasteAction,
+  isTypedSave,
+  TYPED_SAVE_NOT_READY_TEXT,
+  TYPED_SAVE_TEXT,
+} from "./waste/actions";
 import { describeForModel, parseActionId, renderCard } from "./waste/card";
 import { withCorrectionFeedback, type FeedbackScorer } from "./waste/feedback";
-import { GuessStore, type MenuItem } from "./waste/guess";
+import { GuessStore, guessStage, type MenuItem } from "./waste/guess";
 import type { PhotoStore } from "./waste/photos";
 import { createProposeWasteTool, type ProposeContext } from "./waste/propose-tool";
 
@@ -193,13 +198,23 @@ export function createTurnHandler(deps: TurnDeps) {
     const chatId = event.conversation.id;
     const messageTime = now();
     const today = localDate(messageTime, user.timezone);
+    const open = photo ? undefined : guesses.openIn(chatId);
+
+    // The model answered a typed "simpan" with "Tersimpan" although only a tap saves (#74).
+    if (open?.userId === user.id && !open.saving && isTypedSave(text)) {
+      const reply = guessStage(open) === "ready" ? TYPED_SAVE_TEXT : TYPED_SAVE_NOT_READY_TEXT;
+      return {
+        type: "reply",
+        text: reply,
+        onDelivered: () => deps.history.append(chatId, text, reply),
+      };
+    }
 
     // One menu read per turn: it goes into the instructions and backs propose_waste_entry.
     const menu = await loadMenu(user.outletId);
     const turn: ProposeContext["turn"] = {};
     const chartTurn: ChartContext["turn"] = {};
     const outlet = { outlet_id: user.outletId };
-    const open = photo ? undefined : guesses.openIn(chatId);
     const tools = [
       ...scopedTools(deps.servers, allowlist, { outletId: user.outletId, userId: user.id }).map(
         (tool) =>

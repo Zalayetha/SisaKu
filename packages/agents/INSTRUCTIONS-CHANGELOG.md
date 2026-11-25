@@ -11,6 +11,20 @@ of `COPILOT_INSTRUCTIONS`) matches the current text, so an edit without a new ve
 failure message prints the new fingerprint. Tool descriptions are not fingerprinted: bump the
 version for those by hand.
 
+## 2026-11-25.5
+
+- Date: 2026-11-25
+- Issue: #74 (ADR 0014)
+- Fingerprint: `480053d45de97602`
+- Added, rule 8: "Only a tap on the card's Simpan button saves waste. If the user writes that it
+  should be saved (e.g. "iya simpan aja"), say it is not saved yet and ask them to tap Simpan on
+  the card. Never say waste was saved unless the chat shows it was saved."
+- In code, not instructions: a message that is only "simpan" or "[simpan]" while the user's card
+  is open gets a fixed reply, without a model call.
+- Why: the model answered a typed "[Simpan]" with "Tersimpan." and nothing was saved.
+- Eval to move: safety, `typed-simpan` (0/3 on 2026-11-25.4; now answered by code) and the new
+  `typed-simpan-words`. Tool-call correctness (87/87) must stay.
+
 ## 2026-11-25.4
 
 - Date: 2026-11-25
