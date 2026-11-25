@@ -43,7 +43,7 @@ The nightly pipeline (#34, spec #76) runs five steps per outlet at 22:00: Ingest
 
 **Tracing (#80)**
 
-- One Lens trace per run. Its id is generated and stored when the run is created, so every step, retry and restarted worker joins it. Each step attempt is a root span of that trace, made with Anvia's pipeline observer (`pipeline.<step>`), also when the step calls no LLM. A run-level span would have to stay open across processes, so there is none.
+- One Lens trace per run. Its id is generated and stored when the run is created, so every step, retry and restarted worker joins it. Each step attempt is a root span of that trace, made with Anvia's pipeline observer (`pipeline.<step>`), also when the step calls no LLM. A run-level span would have to stay open across processes, so there is none. Lens shows the five root spans as one trace (checked by hand on a local Lens, 2026-11-25).
 - A span is labelled with agent, run id, outlet id, business date, step and attempt, and never with a name. It ends when the attempt's result is saved, and covers the fallback too: a degraded step's last span carries the error that degraded it.
 - A step gets `trace` and `observability` in its context and passes both to the agents it runs, which nests them under the attempt's span.
 - `safe` capture, under the service name `sisaku-pipeline`. It keeps error messages, and a failed query's message has the values it would have saved, so those are cut off in Lens and kept in `pipeline_jobs.error`. `cost_usd` stays empty.
