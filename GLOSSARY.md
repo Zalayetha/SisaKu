@@ -20,6 +20,10 @@ _Avoid_: Bot, chatbot, assistant
 The agent that runs on its own every night per outlet and produces the morning brief. Nobody prompts it; a run can also be started by hand, as for the demo.
 _Avoid_: Cron agent, batch job
 
+**Operator**:
+Whoever runs the nightly pipeline and looks after its jobs in Bull Board. Not a role at an outlet, and not a user of the Kitchen Copilot.
+_Avoid_: Admin, owner
+
 **Pipeline run**:
 One execution of the nightly pipeline for one outlet and one business date, started by the schedule or by hand.
 _Avoid_: Job, batch, execution

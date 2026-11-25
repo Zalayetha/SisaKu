@@ -146,6 +146,30 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline schedule", { timeout: 15_
       ]);
     });
 
+    it.each([
+      ["an end date", { endDate: Date.now() + 3_600_000 }, undefined],
+      ["a limit", { limit: 1 }, undefined],
+      ["other data", {}, { name: "start", data: { outletId: ids.outletB, timezone: JAKARTA } }],
+      ["another job", {}, { name: "ingest", data: { outletId: ids.outletA, timezone: JAKARTA } }],
+    ])("repairs a schedule that an operator gave %s", async (_what, options, template) => {
+      at("2026-03-01T05:00:00Z");
+      await schedule.sync();
+      await queue.upsertJobScheduler(
+        `night-${ids.outletA}`,
+        { pattern: "0 22 * * *", tz: JAKARTA, ...options },
+        template ?? { name: "start", data: { outletId: ids.outletA, timezone: JAKARTA } },
+      );
+      await schedule.sync();
+      expect(await schedulers()).toEqual([scheduler(ids.outletA), scheduler(ids.outletB)]);
+      const repaired = (await queue.getJobScheduler(`night-${ids.outletA}`))!;
+      expect([repaired.name, repaired.endDate, repaired.limit]).toEqual([
+        "start",
+        undefined,
+        undefined,
+      ]);
+      expect((await queue.getDelayed()).map((job) => job.name)).toEqual(["start", "start"]);
+    });
+
     it("keeps a start that is due but not yet taken by a worker", async () => {
       at("2026-03-01T05:00:00Z");
       await schedule.sync();

@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./queue": "./src/queue.ts",
+    "./settings": "./src/settings.ts",
+    "./testing": "./src/testing/index.ts"
+  },
   "scripts": {
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "pipeline:run": "tsx --env-file-if-exists=../../.env src/pipeline-run.ts",
