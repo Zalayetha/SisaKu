@@ -53,9 +53,12 @@ describe.skipIf(!testDbUrl)("scoped tools for an outlet without a user", () => {
     expect(result.groups.map((g) => g.item_id)).not.toContain(ids.soto);
   });
 
-  it("refuses to scope a tool that records who confirmed, before it can be called", async () => {
-    await expect(
-      scopedTools(mcp.servers, [...READ_TOOLS, "log_waste"], { outletId: ids.outletA }),
-    ).rejects.toThrow(/log_waste.*user/);
-  });
+  it.each(["log_waste", "update_entry", "draft_pickup", "submit_pickup"])(
+    "refuses to scope %s, which writes, before it can be called",
+    async (writer) => {
+      await expect(
+        scopedTools(mcp.servers, [...READ_TOOLS, writer], { outletId: ids.outletA }),
+      ).rejects.toThrow(new RegExp(`${writer}.*user`));
+    },
+  );
 });
