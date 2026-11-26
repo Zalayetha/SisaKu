@@ -508,7 +508,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline retries", { timeout: 20_0
       expect(given!.context.run).toMatchObject({ id: runId, businessDate: DATE });
       expect(given!.context.outputs).toEqual({
         ingest: expect.objectContaining({ gaps: [] }),
-        analyze: { stub: true },
+        analyze: expect.objectContaining({ spikes: [] }),
       });
       expect(given!.context.trace.traceId).toBe(run.traceId);
       expect(given!.context.signal.aborted).toBe(false);

@@ -114,7 +114,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     });
     expect(jobs.map((j) => [j.step, j.status, j.attempts, j.output])).toEqual([
       ["ingest", "succeeded", 1, expect.objectContaining({ gaps: [] })],
-      ["analyze", "succeeded", 1, { stub: true }],
+      ["analyze", "succeeded", 1, expect.objectContaining({ spikes: [] })],
       ["forecast", "succeeded", 1, { stub: true }],
       ["recommend", "succeeded", 1, { stub: true }],
       ["report", "succeeded", 1, { stub: true }],
@@ -154,7 +154,10 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       timezone: "Asia/Jakarta",
       businessDate: DATE,
     });
-    expect(seen!.outputs).toEqual({ ingest: { portions: 512 }, analyze: { stub: true } });
+    expect(seen!.outputs).toEqual({
+      ingest: { portions: 512 },
+      analyze: expect.objectContaining({ spikes: [] }),
+    });
     expect(seen!.servers).toBe(mcp.servers);
     expect(seen!.trace.traceId).toBe(run.traceId);
     expect(seen!.signal.aborted).toBe(false);

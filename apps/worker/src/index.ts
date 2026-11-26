@@ -1,3 +1,4 @@
+export * from "./analyze";
 export * from "./ingest";
 export * from "./queue";
 export * from "./runs";

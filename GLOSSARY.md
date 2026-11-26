@@ -75,7 +75,7 @@ The reason food was thrown away: over-prep, spoilage, plate waste, prep error or
 _Avoid_: Reason, category
 
 **Waste spike**:
-A menu item whose waste on a business date is more than double its daily average over the 14 days before, and at least 1 kg. Only days with sales count toward the average, and at least 7 are needed.
+A menu item whose waste on a business date is more than double its daily average over the 14 days before, and at least 1 kg. Only days on which the item sold count toward its average, and at least 7 are needed.
 _Avoid_: Anomaly, outlier, surge
 
 **Spike explanation**:
