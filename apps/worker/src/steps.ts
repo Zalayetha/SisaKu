@@ -2,6 +2,7 @@ import type { AgentObservabilityOptions, AgentTraceOptions } from "@anvia/core/o
 import type { McpServer } from "@anvia/core/mcp";
 import type { PipelineStep } from "@sisaku/db";
 import * as z from "zod";
+import { analyzeStep } from "./analyze";
 import { ingestStep } from "./ingest";
 import type { Tx } from "./runs";
 
@@ -61,7 +62,7 @@ function stubStep(name: PipelineStep): StepDefinition<z.infer<typeof stubOutput>
 
 export const DEFAULT_STEPS: PipelineSteps = {
   ingest: ingestStep,
-  analyze: stubStep("analyze"),
+  analyze: analyzeStep,
   forecast: stubStep("forecast"),
   recommend: stubStep("recommend"),
   report: stubStep("report"),
