@@ -1,5 +1,5 @@
 import type { McpClientGroup } from "@anvia/mcp";
-import type { ListEntriesOutput } from "@sisaku/kitchen-mcp";
+import type { ListEntriesOutput, QueryWasteOutput } from "@sisaku/kitchen-mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../kitchen-mcp/src/test-fixture";
 import { parseToolJson } from "./mcp";
@@ -40,6 +40,17 @@ describe.skipIf(!testDbUrl)("scoped tools for an outlet without a user", () => {
     const entryIds = result.entries.map((e) => e.id);
     expect(entryIds).toContain(ids.wasteRendangDay1);
     expect(entryIds).not.toContain(ids.wasteSotoB);
+  });
+
+  it("reads the scoped outlet when outlet_id is nested in the filters", async () => {
+    const tools = await scopedTools(mcp.servers, READ_TOOLS, { outletId: ids.outletA });
+    const queryWaste = tools.find((t) => t.name === "query_waste")!;
+    const filters = { outlet_id: ids.outletB, from: "2026-03-01", to: "2026-03-01" };
+    const result = parseToolJson<QueryWasteOutput>(
+      await queryWaste.call({ filters, group_by: "item" }),
+    );
+    expect(result.groups.map((g) => g.item_id)).toContain(ids.rendang);
+    expect(result.groups.map((g) => g.item_id)).not.toContain(ids.soto);
   });
 
   it("refuses to scope a tool that records who confirmed, before it can be called", async () => {

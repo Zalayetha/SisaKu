@@ -65,7 +65,9 @@ function inject(args: unknown, injections: readonly Injection[], scope: ToolScop
       target = target[key] = isObject(next) ? next : {};
     }
     const value = INJECTED[name](scope);
-    if (value !== undefined) target[name] = value;
+    // Never undefined for a scoped tool (scopedTools refuses it), but the model must not fill it in.
+    if (value === undefined) delete target[name];
+    else target[name] = value;
   }
   return input;
 }
