@@ -20,7 +20,7 @@ That leaves several choices to the agent layer: which MCP tools the Copilot may 
 
 **Outlet scope**
 
-- `outlet_id` (and later `confirmed_by`) are removed from the tool schemas the LLM sees and filled in from the looked-up user on every call. The model cannot name another outlet.
+- `outlet_id` (and later `confirmed_by`) are removed from the tool schemas the LLM sees and filled in from the looked-up user on every call. The model cannot name another outlet. A nightly pipeline step scopes its tools to its run's outlet with no user, and then gets only tools that read: any other is refused when the tools are scoped, so it cannot be called (added 2026-11-26, #91, ADR 0018).
 - The turn context names the user's outlet (added 2026-11-25, #69), so the model can tell when a user means another one; without it, it gave this outlet's numbers as the other's. The outlet's name therefore reaches the model provider, but not the trace labels. People's names still reach neither.
 - Each user belongs to exactly one outlet, owners included, for the MVP.
 

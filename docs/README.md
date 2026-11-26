@@ -19,7 +19,10 @@ docs/
 │   ├── 0012-kitchen-copilot-runtime-boundary.md
 │   ├── 0013-self-host-anvia-lens.md
 │   ├── 0014-waste-logging-confirmation-gate.md
-│   └── 0015-copilot-data-answers-and-charts.md
+│   ├── 0015-copilot-data-answers-and-charts.md
+│   ├── 0016-copilot-evals.md
+│   ├── 0017-nightly-pipeline-on-bullmq.md
+│   └── 0018-analyze-step-finds-and-explains-waste-spikes.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

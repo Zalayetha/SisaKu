@@ -74,6 +74,14 @@ _Avoid_: Approval, sign-off
 The reason food was thrown away: over-prep, spoilage, plate waste, prep error or expired.
 _Avoid_: Reason, category
 
+**Waste spike**:
+A menu item whose waste on a business date is more than double its daily average over the 14 days before, and at least 1 kg. Only days with sales count toward the average, and at least 7 are needed.
+_Avoid_: Anomaly, outlier, surge
+
+**Spike explanation**:
+What the nightly pipeline found to explain a waste spike, citing the numbers it read: a sales drop, over-prep, spoilage, or unexplained. It is not a waste cause: a spike of over-prep entries can be explained by a sales drop.
+_Avoid_: Spike cause, reason
+
 **Food category**:
 The kind of food a menu item is mostly made of (rice, beef, chicken, ...), used to look up its emission factor.
 _Avoid_: Category (that is the menu section), food type
