@@ -187,6 +187,33 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     expect(output.spikes).toEqual([]);
   });
 
+  it("counts only the days the item itself was sold, as for an item new to the menu", async () => {
+    // The outlet is open all 14 days; rendang joined the menu 8 days ago and wastes 0.8 kg a day.
+    // Over the outlet's 14 days its average would be 0.457 and 1.2 kg a spike; over its own 8 it
+    // is 0.8, and 1.2 kg is not.
+    const date = "2027-03-15";
+    const onMenu = window(date).slice(6);
+    await sell(ids.outletA, [ids.nasi], [...window(date), date]);
+    await sell(ids.outletA, [ids.rendang], [...onMenu, date]);
+    await waste(ids.outletA, ids.rendang, 0.8, onMenu);
+    await waste(ids.outletA, ids.rendang, 1.2, [date]);
+    expect((await analyze(ids.outletA, date)).output.spikes).toEqual([]);
+    // 1.7 kg is.
+    await waste(ids.outletA, ids.rendang, 0.5, [date]);
+    expect((await analyze(ids.outletA, date)).output.spikes).toMatchObject([
+      { item_id: ids.rendang, waste_kg: 1.7, average_kg: 0.8, days_counted: 8 },
+    ]);
+  });
+
+  it("flags nothing for an item sold on fewer than 7 days, though the outlet sold on more", async () => {
+    const date = "2027-04-15";
+    const onMenu = window(date).slice(8); // 6 days
+    await sell(ids.outletA, [ids.nasi], [...window(date), date]);
+    await sell(ids.outletA, [ids.rendang], [...onMenu, date]);
+    await waste(ids.outletA, ids.rendang, 5, [date]);
+    expect((await analyze(ids.outletA, date)).output.spikes).toEqual([]);
+  });
+
   it("saves empty lists when no waste was logged on the day", async () => {
     const date = "2026-11-15";
     await sell(ids.outletA, [ids.nasi, ids.rendang], [...window(date), date]);

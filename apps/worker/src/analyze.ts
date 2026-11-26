@@ -10,7 +10,7 @@ import type { StepDefinition } from "./steps";
 
 /** Days before the business date that an item's daily average looks at. */
 export const SPIKE_WINDOW_DAYS = 14;
-/** Fewer days with a sales record in the window than this, and nothing is flagged. */
+/** Fewer days with a sales record for the item in the window than this, and it is not flagged. */
 export const MIN_DAYS_COUNTED = 7;
 /** A waste spike is more than this many times the item's daily average... */
 export const SPIKE_RATIO = 2;
@@ -91,8 +91,12 @@ export const analyzeStep: StepDefinition<AnalyzeOutput> = {
     const noSpikes = { waste_by_item, waste_by_cause, spikes: [] };
     if (waste_by_item.length === 0) return noSpikes;
 
-    // Only days with a sales record count toward an item's average: a closed or unlogged day is
-    // not a day without waste.
+    // A candidate needs at least the floor on the business date, so only those are read further.
+    const candidates = waste_by_item.filter((item) => item.waste_kg >= MIN_SPIKE_KG);
+    if (candidates.length === 0) return noSpikes;
+
+    // Only days with a sales record for the item count toward its average: a day it was not on
+    // sale (closed, unlogged, or before it joined the menu) is not a day without waste.
     const from = addDays(date, -SPIKE_WINDOW_DAYS);
     const to = addDays(date, -1);
     const sold = await callMcpTool<GetSalesOutput>(servers, "get_sales", {
@@ -100,13 +104,13 @@ export const analyzeStep: StepDefinition<AnalyzeOutput> = {
       from,
       to,
     } satisfies GetSalesInput);
-    const salesDays = new Set(sold.rows.map((r) => r.date));
-    if (salesDays.size < MIN_DAYS_COUNTED) return noSpikes;
+    const salesDaysOf = (itemId: string) =>
+      new Set(sold.rows.filter((r) => r.item_id === itemId).map((r) => r.date));
 
-    // A candidate needs at least the floor on the business date, so only those are read further.
-    const candidates = waste_by_item.filter((item) => item.waste_kg >= MIN_SPIKE_KG);
     const spikes = await Promise.all(
       candidates.map(async (item): Promise<WasteSpike | undefined> => {
+        const salesDays = salesDaysOf(item.item_id);
+        if (salesDays.size < MIN_DAYS_COUNTED) return undefined;
         const history = await callMcpTool<QueryWasteOutput>(servers, "query_waste", {
           filters: { outlet_id, from, to, item_id: item.item_id },
           group_by: "day",

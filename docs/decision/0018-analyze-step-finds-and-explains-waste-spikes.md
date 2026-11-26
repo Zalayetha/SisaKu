@@ -12,7 +12,7 @@ Analyze is the second step of the nightly pipeline (ADR 0017, issue #35). It gro
 **Fixed code finds the spikes, an LLM only explains them**
 
 - The step reads the business date's waste by item and by cause, and each item's waste over the 14 days before, through `query_waste` from fixed code, as Ingest does. Deciding what a spike is takes no LLM, so it is deterministic and tested exactly, and a night without a spike makes no LLM call.
-- An item is a waste spike when its waste on the business date is more than twice its daily average **and** at least 1 kg. The average counts only days in the 14 before that have a sales record, with no waste counting as 0 kg; with fewer than 7 such days there is too little history and nothing is flagged. Counting closed or unlogged days as 0 would lower the average and make false spikes, as would dividing a new outlet's few days by 14.
+- An item is a waste spike when its waste on the business date is more than twice its daily average **and** at least 1 kg. The average counts only days in the 14 before that have a sales record for that item, with no waste counting as 0 kg; with fewer than 7 such days there is too little history and the item is not flagged. Counting closed or unlogged days as 0 would lower the average and make false spikes, as would dividing a new outlet's few days by 14. The same holds for an item: days before it joined the menu, or days it was not on sale, are not days without waste (per item rather than per outlet: amended 2026-11-26 in review of #96).
 
 **One investigation per spike, at most three a night**
 
