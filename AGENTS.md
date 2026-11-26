@@ -96,6 +96,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0015: Copilot data answers and charts](decision/0015-copilot-data-answers-and-charts.md)
 - [0016: Copilot evals](decision/0016-copilot-evals.md)
 - [0017: Nightly pipeline on BullMQ](decision/0017-nightly-pipeline-on-bullmq.md)
+- [0018: Analyze step finds and explains waste spikes](decision/0018-analyze-step-finds-and-explains-waste-spikes.md)
 
 ### Product
 
