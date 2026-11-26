@@ -1,10 +1,13 @@
 import type { AnyTool, JsonObject, JsonValue, ToolCallContext, ToolDefinition } from "@anvia/core";
 import type { McpServer } from "@anvia/core/mcp";
 
-/** Who the agent acts for. Comes from the user lookup, never from the model. */
+/**
+ * Who the agent acts for. Comes from the user lookup or the pipeline run, never from the model.
+ * A nightly pipeline step acts for an outlet with no user, and may not have tools that record one.
+ */
 export type ToolScope = {
   readonly outletId: string;
-  readonly userId: string;
+  readonly userId?: string;
 };
 
 /**
@@ -61,44 +64,48 @@ function inject(args: unknown, injections: readonly Injection[], scope: ToolScop
       const next = target[key];
       target = target[key] = isObject(next) ? next : {};
     }
-    target[name] = INJECTED[name](scope);
+    const value = INJECTED[name](scope);
+    if (value !== undefined) target[name] = value;
   }
   return input;
 }
 
-function scopeTool(tool: AnyTool, scope: ToolScope): AnyTool {
-  let injections: Injection[] | undefined;
-  const resolveInjections = async () =>
-    (injections ??= findInjections((await tool.definition("")).parameters));
-
+function scopeTool(tool: AnyTool, injections: readonly Injection[], scope: ToolScope): AnyTool {
   return {
     name: tool.name,
     async definition(prompt: string): Promise<ToolDefinition> {
       const definition = await tool.definition(prompt);
-      injections = findInjections(definition.parameters);
       return { ...definition, parameters: hideInjected(definition.parameters) };
     },
     parseInput(args: JsonValue) {
       return tool.parseInput ? tool.parseInput(args) : args;
     },
     async call(args: unknown, context?: ToolCallContext) {
-      return tool.call(inject(args, await resolveInjections(), scope), context);
+      return tool.call(inject(args, injections, scope), context);
     },
   };
 }
 
 /**
- * The tools the model may use for one user: only allowlisted MCP tools, with `outlet_id` and
- * `confirmed_by` hidden from their schemas and injected from `scope` on every call.
+ * The tools the model may use for one outlet: only allowlisted MCP tools, with `outlet_id` and
+ * `confirmed_by` hidden from their schemas and injected from `scope` on every call. Without a user
+ * in the scope, a tool that records who confirmed is refused here, so it can never be called.
  */
-export function scopedTools(
+export async function scopedTools(
   servers: readonly McpServer[],
   allowlist: readonly string[],
   scope: ToolScope,
-): AnyTool[] {
+): Promise<AnyTool[]> {
   const allowed = new Set(allowlist);
-  return servers
+  const tools = servers
     .flatMap((server) => server.tools)
-    .filter((tool) => allowed.has(tool.mcp.remoteName) && allowed.has(tool.name))
-    .map((tool) => scopeTool(tool, scope));
+    .filter((tool) => allowed.has(tool.mcp.remoteName) && allowed.has(tool.name));
+  return Promise.all(
+    tools.map(async (tool) => {
+      const injections = findInjections((await tool.definition("")).parameters);
+      if (scope.userId === undefined && injections.some(({ name }) => name === "confirmed_by"))
+        throw new Error(`${tool.name} records who confirmed, and needs a user in its scope`);
+      return scopeTool(tool, injections, scope);
+    }),
+  );
 }

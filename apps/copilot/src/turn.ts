@@ -216,16 +216,17 @@ export function createTurnHandler(deps: TurnDeps) {
     const chartTurn: ChartContext["turn"] = {};
     const outlet = { outlet_id: user.outletId };
     const tools = [
-      ...scopedTools(deps.servers, allowlist, { outletId: user.outletId, userId: user.id }).map(
-        (tool) =>
-          tool.name === "update_entry"
-            ? withCorrectionFeedback(tool, {
-                db: deps.db,
-                scorer: deps.scorer,
-                userId: user.id,
-                log,
-              })
-            : tool,
+      ...(
+        await scopedTools(deps.servers, allowlist, { outletId: user.outletId, userId: user.id })
+      ).map((tool) =>
+        tool.name === "update_entry"
+          ? withCorrectionFeedback(tool, {
+              db: deps.db,
+              scorer: deps.scorer,
+              userId: user.id,
+              log,
+            })
+          : tool,
       ),
       createProposeWasteTool({
         user,
