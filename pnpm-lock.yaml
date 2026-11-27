@@ -173,6 +173,9 @@ importers:
       openai:
         specifier: 7.62.0
         version: 7.62.0(undici@8.13.1)(zod@4.6.7)
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@modelcontextprotocol/server':
         specifier: 2.4.0

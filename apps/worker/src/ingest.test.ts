@@ -19,10 +19,10 @@ import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/t
 import {
   createPipelineRuns,
   createPipelineWorker,
-  DEFAULT_STEPS,
   type IngestOutput,
   type PipelineSteps,
 } from "./index";
+import { TEST_STEPS } from "./testing/steps";
 import { testRedis, testRedisUrl } from "./testing/redis";
 
 // The Ingest step, observed through whole pipeline runs. Outlet A's fixture has sales on 1 to 3
@@ -54,7 +54,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Ingest step", () => {
     date: string,
     {
       servers = mcp.servers,
-      steps = DEFAULT_STEPS,
+      steps = TEST_STEPS,
     }: { servers?: readonly McpServer[]; steps?: PipelineSteps } = {},
   ) {
     const { runId } = await runs.startManual({ outlet, date });
@@ -260,7 +260,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Ingest step", () => {
   it("hands its validated output to Analyze", async () => {
     let seen: unknown;
     const steps: PipelineSteps = {
-      ...DEFAULT_STEPS,
+      ...TEST_STEPS,
       analyze: {
         name: "analyze",
         output: z.object({ ok: z.literal(true) }),

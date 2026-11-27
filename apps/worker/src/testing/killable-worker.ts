@@ -1,7 +1,8 @@
 import { connectInMemoryServers } from "@sisaku/agents/testing";
 import { createDb } from "@sisaku/db";
 import { createPipelineWorker } from "../worker";
-import { DEFAULT_STEPS, type PipelineSteps, type StepDefinition } from "../steps";
+import type { PipelineSteps, StepDefinition } from "../steps";
+import { TEST_STEPS } from "./steps";
 
 // Test-only: the pipeline worker as a process to be killed. It prints "start <step>" for every
 // attempt, and never finishes the step named in HANG_STEP or, with HANG_FALLBACK, its fallback.
@@ -32,7 +33,7 @@ createPipelineWorker({
   servers,
   redis: { url: REDIS_URL!, prefix: PIPELINE_REDIS_PREFIX! },
   steps: Object.fromEntries(
-    Object.values(DEFAULT_STEPS).map((step) => [step.name, observed(step)]),
+    Object.values(TEST_STEPS).map((step) => [step.name, observed(step)]),
   ) as PipelineSteps,
   stalledAfterMs: 500,
   log: () => undefined,

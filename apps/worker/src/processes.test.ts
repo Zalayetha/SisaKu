@@ -47,6 +47,8 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
       ANVIA_LENS_BASE_URL: "http://127.0.0.1:1",
       ANVIA_LENS_PUBLIC_KEY: "pk",
       ANVIA_LENS_SECRET_KEY: "sk",
+      // Never used: no run here has a waste spike to investigate.
+      LLM_API_KEY: "test-key",
     };
   });
   afterAll(async () => {
@@ -183,6 +185,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
     "ANVIA_LENS_BASE_URL",
     "ANVIA_LENS_PUBLIC_KEY",
     "ANVIA_LENS_SECRET_KEY",
+    "LLM_API_KEY",
   ])("the worker refuses to start without %s", async (name) => {
     const { code, output } = await run("src/main.ts", [], without(name));
     expect(code).not.toBe(0);

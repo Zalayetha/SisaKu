@@ -9,7 +9,6 @@ import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/t
 import {
   createPipelineRuns,
   createPipelineWorker,
-  DEFAULT_STEPS,
   PermanentError,
   PIPELINE_QUEUE,
   queueOptions,
@@ -17,6 +16,7 @@ import {
   type StepContext,
   type StepDefinition,
 } from "./index";
+import { TEST_STEPS } from "./testing/steps";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import {
   deleteRuns,
@@ -101,7 +101,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline retries", { timeout: 20_0
       db,
       servers: mcp.servers,
       redis: redis.redis,
-      steps: { ...DEFAULT_STEPS, ...Object.fromEntries(steps.map((s) => [s.name, s])) },
+      steps: { ...TEST_STEPS, ...Object.fromEntries(steps.map((s) => [s.name, s])) },
       log: () => undefined,
       ...extra,
     });

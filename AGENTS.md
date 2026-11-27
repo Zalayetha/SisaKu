@@ -106,11 +106,13 @@ Add a link here whenever a document is created.
 
 ## Agent instructions
 
-Every change to an agent's instructions, or to a tool description the model sees, bumps
-`COPILOT_INSTRUCTIONS_VERSION` and adds an entry to `packages/agents/INSTRUCTIONS-CHANGELOG.md`
-in the same change (ADR 0015). The entry records the rule text, why, the eval it should move, and
-the instructions fingerprint; the test in `packages/agents` fails until it is updated and prints
-the new value.
+Each agent has its own instructions version and changelog in `packages/agents`: the Copilot's
+`COPILOT_INSTRUCTIONS_VERSION` with `INSTRUCTIONS-CHANGELOG.md` (ADR 0015), and the spike
+investigator's `SPIKE_INVESTIGATOR_INSTRUCTIONS_VERSION` with `SPIKE-INVESTIGATOR-CHANGELOG.md`
+(ADR 0018). Every change to an agent's instructions, or to a tool description or prompt its model
+sees, bumps that agent's version and adds an entry to its changelog in the same change. The entry
+records the rule text, why, the eval it should move, and the instructions fingerprint; each
+agent's test in `packages/agents` fails until it is updated and prints the new value.
 
 ## Agent skills
 
