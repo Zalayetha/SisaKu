@@ -103,6 +103,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
       .select({
         id: agentRuns.id,
         outletId: outlets.id,
+        location: outlets.location,
         timezone: outlets.timezone,
         businessDate: agentRuns.businessDate,
         traceId: agentRuns.traceId,

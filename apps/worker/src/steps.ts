@@ -15,6 +15,8 @@ export class PermanentError extends Error {}
 export type PipelineRun = {
   readonly id: string;
   readonly outletId: string;
+  /** The outlet's location (city or area), used for weather lookup; null if unset. */
+  readonly location: string | null;
   /** The outlet's IANA time zone. */
   readonly timezone: string;
   /** The outlet-local day the run covers (YYYY-MM-DD). The run forecasts the day after. */
@@ -66,14 +68,16 @@ function stubStep(name: PipelineStep): StepDefinition<z.infer<typeof stubOutput>
 export type StepDeps = {
   /** The model every agent a step runs uses (technical design: one model for every agent). */
   readonly model: CompletionModel;
+  /** Optional Open-Meteo MCP server for tomorrow's rain forecast (ADR 0019). */
+  readonly weatherServer?: McpServer | undefined;
 };
 
 /** The nightly pipeline's steps. */
-export function defaultSteps({ model }: StepDeps): PipelineSteps {
+export function defaultSteps({ model, weatherServer }: StepDeps): PipelineSteps {
   return {
     ingest: ingestStep,
     analyze: createAnalyzeStep({ model }),
-    forecast: createForecastStep(),
+    forecast: createForecastStep({ weatherServer }),
     recommend: stubStep("recommend"),
     report: stubStep("report"),
   };

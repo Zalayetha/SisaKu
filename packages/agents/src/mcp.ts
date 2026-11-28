@@ -1,6 +1,9 @@
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { McpServer } from "@anvia/core/mcp";
 import { McpClient, McpClientGroup, type McpClientTransport } from "@anvia/mcp";
+
+const require = createRequire(import.meta.url);
 
 type ServerConfig = {
   name: "kitchen" | "impact";
@@ -89,6 +92,67 @@ export function connectMcpServers(env: NodeJS.ProcessEnv = process.env) {
         }),
     ),
   });
+}
+
+/**
+ * Transport for the optional Open-Meteo MCP server (ADR 0019): Streamable HTTP when
+ * `WEATHER_MCP_URL` is set (with optional `WEATHER_MCP_TOKEN`), otherwise spawns the installed
+ * `open-meteo-mcp-server` package over stdio.
+ */
+export function weatherMcpTransport(env: NodeJS.ProcessEnv = process.env): McpClientTransport {
+  const url = env.WEATHER_MCP_URL;
+  if (url) {
+    const token = env.WEATHER_MCP_TOKEN;
+    return {
+      type: "streamableHttp",
+      url,
+      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+      ssrfProtection: mcpSsrfProtection(env),
+    };
+  }
+  return {
+    type: "stdio",
+    command: process.execPath,
+    args: [require.resolve("open-meteo-mcp-server")],
+    env: definedEnv(env),
+    stderr: "inherit",
+  };
+}
+
+export type WeatherMcpConnection = {
+  readonly server: McpServer;
+  close(): Promise<void>;
+};
+
+/**
+ * Connects to the optional Open-Meteo MCP server. Never throws: if the server cannot be reached,
+ * logs a warning and returns `undefined` so the worker starts and Forecast runs without weather.
+ */
+export async function connectWeatherMcp(
+  env: NodeJS.ProcessEnv = process.env,
+  { log = (message: string, error?: unknown) => console.warn(message, error ?? "") } = {},
+): Promise<WeatherMcpConnection | undefined> {
+  try {
+    const group = await McpClientGroup.connect({
+      clients: [
+        new McpClient({
+          name: "weather",
+          transport: weatherMcpTransport(env),
+          versionNegotiation: { mode: "auto" },
+        }),
+      ],
+    });
+    const server = group.servers[0];
+    if (!server) {
+      await group.close();
+      log("Open-Meteo MCP server connected with no server entry; continuing without weather.");
+      return undefined;
+    }
+    return { server, close: () => group.close() };
+  } catch (error) {
+    log("Open-Meteo MCP server is unavailable; continuing without weather.", error);
+    return undefined;
+  }
 }
 
 /**

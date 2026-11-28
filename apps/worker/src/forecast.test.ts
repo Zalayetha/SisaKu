@@ -5,10 +5,15 @@ import { forecasts, outlets, prepLogs, sales } from "@sisaku/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
-import { createPipelineRuns, createPipelineWorker, type ForecastOutput } from "./index";
+import {
+  createPipelineRuns,
+  createPipelineWorker,
+  defaultSteps,
+  type ForecastOutput,
+} from "./index";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import { readRun } from "./testing/runs";
-import { TEST_STEPS } from "./testing/steps";
+import { NO_MODEL } from "./testing/steps";
 
 // The Forecast step, observed through whole pipeline runs. Each case writes its own days in a
 // separate month so cases do not see each other's sales or prep logs.
@@ -39,9 +44,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     date: string,
     {
       servers = mcp.servers,
+      weatherServer,
       beforeWorker,
     }: {
       servers?: readonly McpServer[];
+      weatherServer?: McpServer;
       beforeWorker?: (runId: string) => Promise<void>;
     } = {},
   ) {
@@ -50,7 +57,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     const worker = createPipelineWorker({
       db,
       servers,
-      steps: TEST_STEPS,
+      steps: defaultSteps({ model: NO_MODEL, weatherServer }),
       redis: redis.redis,
       log: () => undefined,
     });
@@ -117,7 +124,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     expect(attempts).toBe(1);
     expect(output).toEqual({
       target_date: "2026-06-01",
-      weather: null,
+      weather: { status: "no_location" },
       calendar_events: [],
       llm_called: false,
       adjusted_count: 0,
@@ -306,5 +313,197 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
       reason: null,
       model: "baseline",
     });
+  });
+
+  /** Builds a fake Open-Meteo MCP server that records calls and returns scripted responses. */
+  function fakeWeatherServer({
+    geocoding,
+    weatherForecast,
+  }: {
+    geocoding: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+    weatherForecast: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+  }) {
+    const calls: { tool: string; args: Record<string, unknown> }[] = [];
+    const wrap = (remoteName: string, fn: (args: Record<string, unknown>) => unknown) => ({
+      name: `weather_${remoteName}`,
+      description: remoteName,
+      parameters: {},
+      mcp: { serverName: "weather", remoteName },
+      call: async (args: unknown) => {
+        const record = (args ?? {}) as Record<string, unknown>;
+        calls.push({ tool: remoteName, args: record });
+        const result = await fn(record);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      },
+    });
+    const server = {
+      name: "weather",
+      tools: [wrap("geocoding", geocoding), wrap("weather_forecast", weatherForecast)],
+    } as unknown as McpServer;
+    return { server, calls };
+  }
+
+  it("fetches tomorrow's rain forecast via Open-Meteo and sets the deterministic rain trigger", async () => {
+    await db
+      .update(outlets)
+      .set({ location: "Jakarta Selatan" })
+      .where(eq(outlets.id, ids.outletA));
+    try {
+      // Rain above threshold (precipitation_sum >= 5 mm) -> triggered: true
+      const rainy = fakeWeatherServer({
+        geocoding: () => ({ results: [{ latitude: -6.2615, longitude: 106.8106 }] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2026-11-02"],
+            precipitation_sum: [12.4],
+            precipitation_probability_max: [45],
+          },
+        }),
+      });
+      const resRain = await runForecast(ids.outletA, "2026-11-01", { weatherServer: rainy.server });
+      expect(resRain.output.weather).toEqual({
+        status: "ok",
+        precipitation_mm: 12.4,
+        rain_probability_pct: 45,
+        triggered: true,
+      });
+      expect(rainy.calls).toEqual([
+        { tool: "geocoding", args: { name: "Jakarta Selatan", count: 1, countryCode: "ID" } },
+        {
+          tool: "weather_forecast",
+          args: {
+            latitude: -6.2615,
+            longitude: 106.8106,
+            daily: ["precipitation_sum", "precipitation_probability_max"],
+            timezone: "Asia/Jakarta",
+            start_date: "2026-11-02",
+            end_date: "2026-11-02",
+          },
+        },
+      ]);
+
+      // Probability above threshold (>= 60%) even with low mm -> triggered: true
+      const likelyRain = fakeWeatherServer({
+        geocoding: () => ({ results: [{ latitude: -6.2615, longitude: 106.8106 }] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2026-11-03"],
+            precipitation_sum: [2.0],
+            precipitation_probability_max: [60],
+          },
+        }),
+      });
+      const resProb = await runForecast(ids.outletA, "2026-11-02", {
+        weatherServer: likelyRain.server,
+      });
+      expect(resProb.output.weather).toEqual({
+        status: "ok",
+        precipitation_mm: 2,
+        rain_probability_pct: 60,
+        triggered: true,
+      });
+
+      // Light drizzle below both thresholds -> triggered: false
+      const drizzle = fakeWeatherServer({
+        geocoding: () => ({ results: [{ latitude: -6.2615, longitude: 106.8106 }] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2026-11-04"],
+            precipitation_sum: [4.9],
+            precipitation_probability_max: [59],
+          },
+        }),
+      });
+      const resDrizzle = await runForecast(ids.outletA, "2026-11-03", {
+        weatherServer: drizzle.server,
+      });
+      expect(resDrizzle.output.weather).toEqual({
+        status: "ok",
+        precipitation_mm: 4.9,
+        rain_probability_pct: 59,
+        triggered: false,
+      });
+    } finally {
+      await db.update(outlets).set({ location: null }).where(eq(outlets.id, ids.outletA));
+    }
+  });
+
+  it("degrades gracefully when weather server is omitted, throws, geocoding fails, or outlet has no location", async () => {
+    // 1. Outlet has no location -> status: "no_location"
+    const noLocWeather = fakeWeatherServer({
+      geocoding: () => {
+        throw new Error("should not be called");
+      },
+      weatherForecast: () => {
+        throw new Error("should not be called");
+      },
+    });
+    const resNoLoc = await runForecast(ids.outletA, "2026-11-10", {
+      weatherServer: noLocWeather.server,
+    });
+    expect(resNoLoc.output.weather).toEqual({ status: "no_location" });
+    expect(resNoLoc.rows).toHaveLength(2);
+    expect(noLocWeather.calls).toHaveLength(0);
+
+    // 2. Weather server omitted -> status: "unavailable"
+    await db.update(outlets).set({ location: "Bandung" }).where(eq(outlets.id, ids.outletA));
+    try {
+      const resOmitted = await runForecast(ids.outletA, "2026-11-11");
+      expect(resOmitted.output.weather).toEqual({ status: "unavailable" });
+      expect(resOmitted.rows).toHaveLength(2);
+
+      // 3. Weather tool throws -> status: "unavailable", baseline rows still written
+      const throwing = fakeWeatherServer({
+        geocoding: () => ({ results: [{ latitude: -6.9175, longitude: 107.6191 }] }),
+        weatherForecast: () => {
+          throw new Error("Open-Meteo 503");
+        },
+      });
+      const resThrows = await runForecast(ids.outletA, "2026-11-12", {
+        weatherServer: throwing.server,
+      });
+      expect(resThrows.output.weather).toEqual({ status: "unavailable" });
+      expect(resThrows.rows).toHaveLength(2);
+
+      // 4. Geocoding fails on known Indonesian city ("Bandung") -> falls back to known city coordinates
+      const fallbackCity = fakeWeatherServer({
+        geocoding: () => ({ results: [] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2026-11-14"],
+            precipitation_sum: [8],
+            precipitation_probability_max: [70],
+          },
+        }),
+      });
+      const resFallback = await runForecast(ids.outletA, "2026-11-13", {
+        weatherServer: fallbackCity.server,
+      });
+      expect(resFallback.output.weather).toEqual({
+        status: "ok",
+        precipitation_mm: 8,
+        rain_probability_pct: 70,
+        triggered: true,
+      });
+
+      // 5. Geocoding fails on unknown location -> status: "unavailable", baseline rows still written
+      await db
+        .update(outlets)
+        .set({ location: "Unknown Village XYZ" })
+        .where(eq(outlets.id, ids.outletA));
+      const unknownLoc = fakeWeatherServer({
+        geocoding: () => ({ results: [] }),
+        weatherForecast: () => {
+          throw new Error("should not be called");
+        },
+      });
+      const resUnknown = await runForecast(ids.outletA, "2026-11-14", {
+        weatherServer: unknownLoc.server,
+      });
+      expect(resUnknown.output.weather).toEqual({ status: "unavailable" });
+      expect(resUnknown.rows).toHaveLength(2);
+    } finally {
+      await db.update(outlets).set({ location: null }).where(eq(outlets.id, ids.outletA));
+    }
   });
 });

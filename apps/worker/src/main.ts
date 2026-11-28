@@ -1,4 +1,4 @@
-import { connectMcpServers, createLens, createModel } from "@sisaku/agents";
+import { connectMcpServers, connectWeatherMcp, createLens, createModel } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
 import { createPipelineRuns } from "./runs";
 import { createPipelineSchedule } from "./schedule";
@@ -17,6 +17,8 @@ const { db, pool } = createDb();
 await assertPostgres(db);
 await assertRedis(redis);
 const mcp = await connectMcpServers();
+// Optional: an Open-Meteo outage never blocks worker startup (ADR 0019).
+const weather = await connectWeatherMcp();
 
 const runs = createPipelineRuns({ db, redis });
 const schedule = createPipelineSchedule({ db, redis, runs });
@@ -24,7 +26,7 @@ await schedule.sync();
 const worker = createPipelineWorker({
   db,
   servers: mcp.servers,
-  steps: defaultSteps({ model }),
+  steps: defaultSteps({ model, weatherServer: weather?.server }),
   redis,
   schedule,
   lens: createPipelineLens(lens),
@@ -39,7 +41,14 @@ async function shutdown() {
   await worker.stop();
   // A step left behind may still hold a connection; its worker must exit all the same.
   setTimeout(() => process.exit(0), CLOSE_WAIT_MS);
-  await Promise.allSettled([schedule.close(), runs.close(), mcp.close(), lens.close(), pool.end()]);
+  await Promise.allSettled([
+    schedule.close(),
+    runs.close(),
+    mcp.close(),
+    weather?.close(),
+    lens.close(),
+    pool.end(),
+  ]);
   process.exit(0);
 }
 process.once("SIGTERM", () => void shutdown());
