@@ -194,6 +194,7 @@ export function createPipelineWorker(deps: PipelineWorkerDeps) {
         (signal) =>
           work({
             run,
+            db,
             outputs,
             servers: deps.servers,
             trace: span.trace,

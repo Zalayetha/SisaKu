@@ -23,7 +23,8 @@ docs/
 │   ├── 0016-copilot-evals.md
 │   ├── 0017-nightly-pipeline-on-bullmq.md
 │   ├── 0018-analyze-step-finds-and-explains-waste-spikes.md
-│   └── 0019-forecast-step-baseline-and-llm-adjustment.md
+│   ├── 0019-forecast-step-baseline-and-llm-adjustment.md
+│   └── 0020-recommend-step-and-approval-gate.md
 ├── product/
 │   └── 0001-product-direction.md
 └── README.md

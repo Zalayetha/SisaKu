@@ -1,4 +1,11 @@
-import { agentRuns, forecasts, pipelineJobResults, pipelineJobs, PIPELINE_STEPS } from "@sisaku/db";
+import {
+  agentRuns,
+  forecasts,
+  pipelineJobResults,
+  pipelineJobs,
+  PIPELINE_STEPS,
+  recommendations,
+} from "@sisaku/db";
 import type { PipelineStep } from "@sisaku/db";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
@@ -32,6 +39,7 @@ export async function expectStatus(
 }
 
 export async function deleteRuns(db: Db) {
+  await db.delete(recommendations);
   await db.delete(forecasts);
   await db.delete(pipelineJobResults);
   await db.delete(pipelineJobs);

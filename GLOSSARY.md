@@ -96,6 +96,12 @@ _Avoid_: Carbon factor, emission rate
 Waste weight multiplied by its emission factor. Always an estimate: the factors are global defaults, applied to cooked weight.
 _Avoid_: Carbon footprint, emissions (without "estimate")
 
+## Planning
+
+**Prep recommendation**:
+The whole-portion quantity of a menu item the nightly pipeline advises a kitchen to cook tomorrow, turned from its forecast with a confidence score and a one-line reason. A change over 30% from the kitchen's usual prep waits for approval; smaller changes need none.
+_Avoid_: Forecast (that is predicted demand), prep plan
+
 ## Donations
 
 **Food bank**:

@@ -10,10 +10,11 @@ import {
   pipelineJobResults,
   pipelineJobs,
   prepLogs,
+  recommendations,
   sales,
   wasteEntries,
 } from "@sisaku/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as z from "zod";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
@@ -199,6 +200,14 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Ingest step", () => {
         { type: "sold_not_prepped", item_id: soup!.id, item_name: "Sayur Asem" },
       ]),
     );
+    await db
+      .delete(recommendations)
+      .where(
+        inArray(
+          recommendations.forecastId,
+          db.select({ id: forecasts.id }).from(forecasts).where(eq(forecasts.itemId, soup!.id)),
+        ),
+      );
     await db.delete(forecasts).where(eq(forecasts.itemId, soup!.id));
     await db.delete(sales).where(eq(sales.itemId, soup!.id));
     await db.delete(menuItems).where(eq(menuItems.id, soup!.id));

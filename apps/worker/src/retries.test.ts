@@ -73,7 +73,6 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline retries", { timeout: 20_0
   afterEach(async () => {
     await Promise.all(workers.splice(0).map((w) => w.stop(1_000)));
     await redis.clear();
-    await db.delete(forecasts);
     await deleteRuns(db);
   });
 
@@ -97,11 +96,21 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline retries", { timeout: 20_0
   const start = () => runs.startManual({ outlet: ids.outletA, date: DATE });
 
   function startWorker(steps: StepDefinition[], extra: Partial<PipelineWorkerDeps> = {}) {
+    const overrides = Object.fromEntries(steps.map((s) => [s.name, s]));
+    const stubRecommend: StepDefinition = {
+      name: "recommend",
+      output: z.object({ stub: z.literal(true) }),
+      run: async () => ({ stub: true }),
+    };
     const worker = createPipelineWorker({
       db,
       servers: mcp.servers,
       redis: redis.redis,
-      steps: { ...TEST_STEPS, ...Object.fromEntries(steps.map((s) => [s.name, s])) },
+      steps: {
+        ...TEST_STEPS,
+        ...(overrides.forecast && !overrides.recommend ? { recommend: stubRecommend } : {}),
+        ...overrides,
+      },
       log: () => undefined,
       ...extra,
     });

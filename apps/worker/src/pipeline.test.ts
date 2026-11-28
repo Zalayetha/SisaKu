@@ -117,7 +117,12 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       ["ingest", "succeeded", 1, expect.objectContaining({ gaps: [] })],
       ["analyze", "succeeded", 1, expect.objectContaining({ spikes: [] })],
       ["forecast", "succeeded", 1, expect.objectContaining({ target_date: "2026-03-02" })],
-      ["recommend", "succeeded", 1, { stub: true }],
+      [
+        "recommend",
+        "succeeded",
+        1,
+        expect.objectContaining({ target_date: "2026-03-02", total_items: 2 }),
+      ],
       ["report", "succeeded", 1, { stub: true }],
     ]);
     for (const job of jobs) {
@@ -142,8 +147,13 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
         return { items: 2 };
       },
     };
+    const recommend: StepDefinition = {
+      name: "recommend",
+      output: z.object({ ok: z.literal(true) }),
+      run: async () => ({ ok: true }),
+    };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    startWorker({ steps: { ...TEST_STEPS, ingest, forecast } });
+    startWorker({ steps: { ...TEST_STEPS, ingest, forecast, recommend } });
 
     await expectStatus(runId, "succeeded");
     const { run, jobs } = await readRun(runId);
