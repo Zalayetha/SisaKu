@@ -1,5 +1,6 @@
 export * from "./allowlist";
 export * from "./copilot";
+export * from "./forecast-adjustor";
 export * from "./instructions";
 export * from "./lens";
 export * from "./mcp";

@@ -1,3 +1,4 @@
+import type { CompletionModel } from "@anvia/core";
 import type { McpServer } from "@anvia/core/mcp";
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
@@ -13,6 +14,7 @@ import {
 } from "./index";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import { readRun } from "./testing/runs";
+import { ScriptedModel } from "./testing/scripted-model";
 import { NO_MODEL } from "./testing/steps";
 
 // The Forecast step, observed through whole pipeline runs. Each case writes its own days in a
@@ -43,10 +45,12 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     outlet: string,
     date: string,
     {
+      model = NO_MODEL,
       servers = mcp.servers,
       weatherServer,
       beforeWorker,
     }: {
+      model?: CompletionModel;
       servers?: readonly McpServer[];
       weatherServer?: McpServer;
       beforeWorker?: (runId: string) => Promise<void>;
@@ -57,7 +61,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     const worker = createPipelineWorker({
       db,
       servers,
-      steps: defaultSteps({ model: NO_MODEL, weatherServer }),
+      steps: defaultSteps({ model, weatherServer }),
       redis: redis.redis,
       log: () => undefined,
     });
@@ -548,5 +552,315 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     } finally {
       await db.update(outlets).set({ location: null }).where(eq(outlets.id, ids.outletA));
     }
+  });
+
+  it("makes zero LLM requests on a normal dry day or light drizzle below the rain threshold", async () => {
+    // Business date 2027-01-14 (Thursday) -> target 2027-01-15 (Friday, non-holiday).
+    // Matching Fridays: 2027-01-08, 2027-01-01.
+    await db.insert(sales).values([
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2027-01-01", qtySold: 80 },
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2027-01-08", qtySold: 90 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2027-01-01", qtySold: 30 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2027-01-08", qtySold: 34 },
+    ]);
+    await db
+      .update(outlets)
+      .set({ location: "Jakarta Selatan" })
+      .where(eq(outlets.id, ids.outletA));
+    try {
+      const drizzle = fakeWeatherServer({
+        geocoding: () => ({ results: [{ latitude: -6.2615, longitude: 106.8106 }] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2027-01-15"],
+            precipitation_sum: [4.9],
+            precipitation_probability_max: [59],
+          },
+        }),
+      });
+      const model = new ScriptedModel(() => {
+        throw new Error("LLM should not be called on a dry or drizzle non-holiday");
+      });
+
+      const { output, rows } = await runForecast(ids.outletA, "2027-01-14", {
+        model,
+        weatherServer: drizzle.server,
+      });
+
+      expect(model.requests).toHaveLength(0);
+      expect(output.calendar_events).toEqual([]);
+      expect(output.llm_called).toBe(false);
+      expect(output.adjusted_count).toBe(0);
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row.adjustedQty).toBe(row.baselineQty);
+        expect(row.reason).toBeNull();
+        expect(row.model).toBe("baseline");
+      }
+    } finally {
+      await db.update(outlets).set({ location: null }).where(eq(outlets.id, ids.outletA));
+    }
+  });
+
+  it("makes one batch LLM call on a holiday even when weather is unavailable, persisting adjusted and unadjusted items", async () => {
+    // Business date 2026-12-24 (Thursday) -> target 2026-12-25 (Friday, Christmas holiday).
+    // Matching Fridays: 2026-12-04, 2026-12-11, 2026-12-18.
+    await db.insert(sales).values([
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2026-12-04", qtySold: 100 },
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2026-12-11", qtySold: 100 },
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2026-12-18", qtySold: 100 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2026-12-04", qtySold: 40 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2026-12-11", qtySold: 40 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2026-12-18", qtySold: 40 },
+    ]);
+
+    const model = ScriptedModel.of([
+      {
+        text: JSON.stringify({
+          adjustments: [
+            {
+              item_id: ids.nasi,
+              adjusted_qty: 115.46, // rounds to 115.5
+              reason: "Christmas holiday increases family dining demand",
+            },
+            // Rendang omitted -> stays unadjusted with model = "baseline" and reason = null
+          ],
+        }),
+      },
+    ]);
+
+    // Outlet has a location but weatherServer is omitted -> weather: unavailable; calendar still triggers LLM.
+    await db
+      .update(outlets)
+      .set({ location: "Jakarta Selatan" })
+      .where(eq(outlets.id, ids.outletA));
+    try {
+      const { output, rows } = await runForecast(ids.outletA, "2026-12-24", { model });
+
+      expect(model.requests).toHaveLength(1);
+      expect(output.weather).toEqual({ status: "unavailable" });
+      expect(output.calendar_events).toEqual([{ name: "Christmas", kind: "holiday" }]);
+      expect(output.llm_called).toBe(true);
+      expect(output.adjusted_count).toBe(1);
+
+      const rowByItem = new Map(rows.map((r) => [r.itemId, r]));
+      expect(rowByItem.get(ids.nasi)).toMatchObject({
+        baselineQty: 100,
+        adjustedQty: 115.5,
+        reason: "Christmas holiday increases family dining demand",
+        model: "scripted",
+      });
+      expect(rowByItem.get(ids.rendang)).toMatchObject({
+        baselineQty: 40,
+        adjustedQty: 40,
+        reason: null,
+        model: "baseline",
+      });
+    } finally {
+      await db.update(outlets).set({ location: null }).where(eq(outlets.id, ids.outletA));
+    }
+  });
+
+  it("calls the LLM with weather context when rain triggers on a non-holiday", async () => {
+    // Business date 2027-01-21 (Thursday) -> target 2027-01-22 (Friday, non-holiday).
+    // Reuses 2027-01-01 and 2027-01-08 sales inserted above (nasi avg 85, rendang avg 32).
+    await db
+      .update(outlets)
+      .set({ location: "Jakarta Selatan" })
+      .where(eq(outlets.id, ids.outletA));
+    try {
+      const heavyRain = fakeWeatherServer({
+        geocoding: () => ({ results: [{ latitude: -6.2615, longitude: 106.8106 }] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2027-01-22"],
+            precipitation_sum: [18.5],
+            precipitation_probability_max: [85],
+          },
+        }),
+      });
+      const model = ScriptedModel.of([
+        {
+          text: JSON.stringify({
+            adjustments: [
+              {
+                item_id: ids.nasi,
+                adjusted_qty: 75,
+                reason: "Heavy rain forecast reduces walk-in lunch traffic",
+              },
+            ],
+          }),
+        },
+      ]);
+
+      const { output, rows } = await runForecast(ids.outletA, "2027-01-21", {
+        model,
+        weatherServer: heavyRain.server,
+      });
+
+      expect(model.requests).toHaveLength(1);
+      const userMessage = JSON.stringify(model.requests[0]!.chatHistory);
+      expect(userMessage).toContain("18.5 mm");
+      expect(userMessage).toContain("85%");
+      expect(output.calendar_events).toEqual([]);
+      expect(output.weather).toMatchObject({ status: "ok", triggered: true });
+      expect(output.llm_called).toBe(true);
+      expect(output.adjusted_count).toBe(1);
+
+      const rowByItem = new Map(rows.map((r) => [r.itemId, r]));
+      expect(rowByItem.get(ids.nasi)).toMatchObject({
+        baselineQty: 85,
+        adjustedQty: 75,
+        reason: "Heavy rain forecast reduces walk-in lunch traffic",
+        model: "scripted",
+      });
+      expect(rowByItem.get(ids.rendang)).toMatchObject({
+        baselineQty: 32,
+        adjustedQty: 32,
+        reason: null,
+        model: "baseline",
+      });
+    } finally {
+      await db.update(outlets).set({ location: null }).where(eq(outlets.id, ids.outletA));
+    }
+  });
+
+  it("never adjusts zero-baseline items while allowing low_confidence items with baseline_qty > 0 to be adjusted on Ramadan", async () => {
+    // Business date 2026-02-24 (Tuesday) -> target 2026-02-25 (Wednesday, Ramadan 2026).
+    // Nasi has 0 sales and 1 prep log (low_confidence: true, baseline 60).
+    // Rendang has 0 sales and 0 prep logs (low_confidence: true, baseline 0).
+    await db
+      .insert(prepLogs)
+      .values([{ outletId: ids.outletA, itemId: ids.nasi, date: "2026-02-24", qtyPrepped: 60 }]);
+
+    const model = ScriptedModel.of([
+      {
+        text: JSON.stringify({
+          adjustments: [
+            {
+              item_id: ids.nasi,
+              adjusted_qty: 48,
+              reason: "Ramadan lowers daytime dine-in demand",
+            },
+          ],
+        }),
+      },
+    ]);
+
+    const { output, rows } = await runForecast(ids.outletA, "2026-02-24", { model });
+
+    expect(model.requests).toHaveLength(1);
+    const promptText = JSON.stringify(model.requests[0]!.chatHistory);
+    expect(promptText).toContain(ids.nasi);
+    expect(promptText).not.toContain(ids.rendang);
+    expect(output.calendar_events).toEqual([{ name: "Ramadan 2026", kind: "ramadan" }]);
+    expect(output.llm_called).toBe(true);
+    expect(output.adjusted_count).toBe(1);
+
+    const rowByItem = new Map(rows.map((r) => [r.itemId, r]));
+    expect(rowByItem.get(ids.nasi)).toMatchObject({
+      baselineQty: 60,
+      adjustedQty: 48,
+      reason: "Ramadan lowers daytime dine-in demand",
+      model: "scripted",
+    });
+    expect(rowByItem.get(ids.rendang)).toMatchObject({
+      baselineQty: 0,
+      adjustedQty: 0,
+      reason: null,
+      model: "baseline",
+    });
+  });
+
+  it("retries on invalid LLM output and succeeds cleanly on a later attempt without duplicate forecasts rows", async () => {
+    // Business date 2026-04-02 (Thursday) -> target 2026-04-03 (Friday, Good Friday holiday).
+    // Matching Fridays: 2026-03-20, 2026-03-27.
+    await db.insert(sales).values([
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2026-03-20", qtySold: 100 },
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2026-03-27", qtySold: 100 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2026-03-20", qtySold: 40 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2026-03-27", qtySold: 40 },
+    ]);
+
+    // Attempts 1-3 return invalid outputs (malformed JSON, negative qty, unknown item_id);
+    // attempt 4 succeeds cleanly.
+    const model = ScriptedModel.of([
+      { text: "{not valid json" },
+      {
+        text: JSON.stringify({
+          adjustments: [{ item_id: ids.nasi, adjusted_qty: -10, reason: "Invalid" }],
+        }),
+      },
+      {
+        text: JSON.stringify({
+          adjustments: [
+            {
+              item_id: "00000000-0000-4000-8000-000000000999",
+              adjusted_qty: 50,
+              reason: "Unknown item",
+            },
+          ],
+        }),
+      },
+      {
+        text: JSON.stringify({
+          adjustments: [
+            {
+              item_id: ids.nasi,
+              adjusted_qty: 110,
+              reason: "Good Friday holiday boosts family meals",
+            },
+          ],
+        }),
+      },
+    ]);
+
+    const { status, attempts, output, rows } = await runForecast(ids.outletA, "2026-04-02", {
+      model,
+    });
+
+    expect(status).toBe("succeeded");
+    expect(attempts).toBe(4);
+    expect(model.requests).toHaveLength(4);
+    expect(output.llm_called).toBe(true);
+    expect(output.adjusted_count).toBe(1);
+    expect(rows).toHaveLength(2);
+    const rowByItem = new Map(rows.map((r) => [r.itemId, r]));
+    expect(rowByItem.get(ids.nasi)).toMatchObject({
+      baselineQty: 100,
+      adjustedQty: 110,
+      reason: "Good Friday holiday boosts family meals",
+      model: "scripted",
+    });
+    expect(rowByItem.get(ids.rendang)).toMatchObject({
+      baselineQty: 40,
+      adjustedQty: 40,
+      reason: null,
+      model: "baseline",
+    });
+
+    // Missing reason on attempt 1 fails and retries, succeeding cleanly on attempt 2 without duplicates.
+    const retryModel = ScriptedModel.of([
+      {
+        text: JSON.stringify({
+          adjustments: [{ item_id: ids.nasi, adjusted_qty: 112, reason: "   " }],
+        }),
+      },
+      {
+        text: JSON.stringify({
+          adjustments: [
+            {
+              item_id: ids.nasi,
+              adjusted_qty: 112,
+              reason: "Good Friday holiday increases lunch traffic",
+            },
+          ],
+        }),
+      },
+    ]);
+    const retryRun = await runForecast(ids.outletA, "2026-04-02", { model: retryModel });
+    expect(retryRun.status).toBe("succeeded");
+    expect(retryRun.attempts).toBe(2);
+    expect(retryRun.rows).toHaveLength(2);
   });
 });

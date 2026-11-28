@@ -6,6 +6,7 @@ export default defineConfig({
     // Workspace packages run from source in tests; CI runs tests before `pnpm build`.
     alias: {
       "@sisaku/db": fileURLToPath(new URL("./packages/db/src/index.ts", import.meta.url)),
+      "@sisaku/shared": fileURLToPath(new URL("./packages/shared/src/index.ts", import.meta.url)),
     },
   },
   test: {

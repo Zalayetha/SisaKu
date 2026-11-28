@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { CompletionModel } from "@anvia/core";
 import type { McpServer } from "@anvia/core/mcp";
-import { callMcpTool } from "@sisaku/agents";
+import { adjustForecast, callMcpTool, type ForecastBaselineItem } from "@sisaku/agents";
 import { forecasts } from "@sisaku/db";
 import type {
   GetMenuInput,
@@ -10,6 +11,7 @@ import type {
   GetSalesInput,
   GetSalesOutput,
 } from "@sisaku/kitchen-mcp";
+import { addDays, getCalendar } from "@sisaku/shared";
 import { eq } from "drizzle-orm";
 import * as z from "zod";
 import type { StepDefinition } from "./steps";
@@ -88,13 +90,6 @@ export const forecastOutput = z.object({
 export type ForecastWeatherSummary = z.infer<typeof forecastWeatherSummary>;
 export type ForecastItemSummary = z.infer<typeof forecastItemSummary>;
 export type ForecastOutput = z.infer<typeof forecastOutput>;
-
-/** The day `offset` days from `date` (YYYY-MM-DD). */
-function addDays(date: string, offset: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + offset);
-  return d.toISOString().slice(0, 10);
-}
 
 /** Rounds a quantity to 1 decimal place. */
 function round1(value: number): number {
@@ -258,6 +253,8 @@ async function fetchTomorrowWeather({
 }
 
 export type ForecastStepDeps = {
+  /** The model used by the forecast adjustor agent when calendar or rain triggers fire. */
+  readonly model: CompletionModel;
   /** Optional Open-Meteo MCP server for tomorrow's rain forecast (ADR 0019). */
   readonly weatherServer?: McpServer | undefined;
   readonly log?: (message: string, error?: unknown) => void;
@@ -266,18 +263,23 @@ export type ForecastStepDeps = {
 /**
  * The Forecast step: computes deterministic statistical baselines (4 matching weekdays of sales,
  * or 14-day prep-log fallback with `low_confidence: true` when fewer than 2 matching weekdays
- * exist), fetches tomorrow's rain forecast via Open-Meteo MCP when available, persists rows to
- * `forecasts` via `onSave`, and returns summary metadata (ADR 0019).
+ * exist), looks up tomorrow's Indonesian calendar and rain forecast, adjusts eligible baselines
+ * with a single batch LLM call when calendar or rain triggers fire, persists rows to `forecasts`
+ * via `onSave`, and returns summary metadata (ADR 0019).
  */
-export function createForecastStep(deps: ForecastStepDeps = {}): StepDefinition<ForecastOutput> {
+export function createForecastStep(deps: ForecastStepDeps): StepDefinition<ForecastOutput> {
   const log =
     deps.log ?? ((message: string, error?: unknown) => console.warn(message, error ?? ""));
   return {
     name: "forecast",
     output: forecastOutput,
-    async run({ run, servers, onSave }) {
+    async run({ run, servers, trace, observability, signal, onSave }) {
       const outlet_id = run.outletId;
       const target_date = addDays(run.businessDate, 1);
+      const calendar_events = getCalendar(target_date).map((e) => ({
+        name: e.name,
+        kind: e.kind,
+      }));
 
       const menu = await callMcpTool<GetMenuOutput>(servers, "get_menu", {
         outlet_id,
@@ -290,7 +292,7 @@ export function createForecastStep(deps: ForecastStepDeps = {}): StepDefinition<
         return {
           target_date,
           weather: null,
-          calendar_events: [],
+          calendar_events,
           llm_called: false,
           adjusted_count: 0,
           items: [],
@@ -343,6 +345,7 @@ export function createForecastStep(deps: ForecastStepDeps = {}): StepDefinition<
       }
 
       const items: ForecastItemSummary[] = [];
+      const baselineItems: ForecastBaselineItem[] = [];
       const rowsToInsert: (typeof forecasts.$inferInsert)[] = [];
 
       for (const item of menu.items) {
@@ -365,6 +368,12 @@ export function createForecastStep(deps: ForecastStepDeps = {}): StepDefinition<
           low_confidence,
           history_days,
         });
+        baselineItems.push({
+          item_id: item.id,
+          item_name: item.name,
+          baseline_qty: baselineQty,
+          low_confidence,
+        });
         rowsToInsert.push({
           id: forecast_id,
           runId: run.id,
@@ -386,6 +395,36 @@ export function createForecastStep(deps: ForecastStepDeps = {}): StepDefinition<
         log,
       });
 
+      const rainTriggered = weather.status === "ok" && weather.triggered === true;
+      const hasEligibleItems = baselineItems.some((item) => item.baseline_qty > 0);
+      const shouldCallLlm = (calendar_events.length > 0 || rainTriggered) && hasEligibleItems;
+
+      let llm_called = false;
+      let adjusted_count = 0;
+      if (shouldCallLlm) {
+        llm_called = true;
+        const adjustments = await adjustForecast({
+          model: deps.model,
+          targetDate: target_date,
+          timezone: run.timezone,
+          items: baselineItems,
+          calendarEvents: calendar_events,
+          weather,
+          trace,
+          observability,
+          abortSignal: signal,
+        });
+        for (const row of rowsToInsert) {
+          const adj = adjustments.get(row.itemId);
+          if (adj) {
+            row.adjustedQty = adj.adjusted_qty;
+            row.reason = adj.reason;
+            row.model = deps.model.modelId;
+            adjusted_count += 1;
+          }
+        }
+      }
+
       onSave(async (tx) => {
         await tx.delete(forecasts).where(eq(forecasts.runId, run.id));
         await tx.insert(forecasts).values(rowsToInsert);
@@ -394,9 +433,9 @@ export function createForecastStep(deps: ForecastStepDeps = {}): StepDefinition<
       return {
         target_date,
         weather,
-        calendar_events: [],
-        llm_called: false,
-        adjusted_count: 0,
+        calendar_events,
+        llm_called,
+        adjusted_count,
         items,
       };
     },

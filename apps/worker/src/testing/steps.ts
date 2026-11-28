@@ -1,4 +1,5 @@
-import type { CompletionModel } from "@anvia/core";
+import { Usage, type CompletionModel } from "@anvia/core";
+import { createForecastStep } from "../forecast";
 import { defaultSteps } from "../steps";
 
 // Test-only: the pipeline's own steps, with a model that refuses every request. A test that
@@ -19,4 +20,19 @@ export const NO_MODEL: CompletionModel = {
   completion: () => Promise.reject(new Error("This test has no model")),
 };
 
-export const TEST_STEPS = defaultSteps({ model: NO_MODEL });
+/** Test-only stub model for Forecast when non-Forecast tests run on a holiday or Ramadan date. */
+export const NO_ADJUSTMENTS_MODEL: CompletionModel = {
+  ...NO_MODEL,
+  modelId: "stub-no-adjustments",
+  completion: async () => ({
+    usage: Usage.empty(),
+    rawResponse: {},
+    choice: [{ type: "text", text: '{"adjustments":[]}' }],
+    finishReason: "stop",
+  }),
+};
+
+export const TEST_STEPS = {
+  ...defaultSteps({ model: NO_MODEL }),
+  forecast: createForecastStep({ model: NO_ADJUSTMENTS_MODEL }),
+};

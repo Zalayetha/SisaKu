@@ -76,7 +76,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
   const command = (args: string[], env = settings) => run("src/pipeline-run.ts", args, env);
 
   it("pipeline:run queues a run that the worker finishes, and the worker stops on SIGTERM", async () => {
-    const { code, output } = await command(["--outlet", "Warung Test", "--date", "2026-03-01"]);
+    const { code, output } = await command(["--outlet", "Warung Test", "--date", "2026-06-01"]);
     expect(code).toBe(0);
     const runId = /[0-9a-f]{8}-[0-9a-f-]{27}/.exec(output)![0];
 
@@ -120,7 +120,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("worker processes", { timeout: 60_0
   it("the worker sends one trace per run to Lens, and flushes it on SIGTERM", async () => {
     const lens = await startLensServer();
     try {
-      const { output } = await command(["--outlet", "Warung Test", "--date", "2026-03-02"]);
+      const { output } = await command(["--outlet", "Warung Test", "--date", "2026-06-02"]);
       const runId = /[0-9a-f]{8}-[0-9a-f-]{27}/.exec(output)![0];
       const worker = start("src/main.ts", [], { ...settings, ...lens.env });
       const readRun = async () =>

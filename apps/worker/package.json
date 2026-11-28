@@ -19,6 +19,7 @@
     "@anvia/core": "1.21.0",
     "@sisaku/agents": "workspace:*",
     "@sisaku/db": "workspace:*",
+    "@sisaku/shared": "workspace:*",
     "bullmq": "6.7.7",
     "drizzle-orm": "^0.45.2",
     "ioredis": "6.0.0",
