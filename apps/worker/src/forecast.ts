@@ -106,9 +106,19 @@ function mean(values: readonly number[]): number {
 }
 
 function fallbackIndonesianCity(location: string): Coordinates | undefined {
-  const normalized = location.toLowerCase();
-  for (const [city, coords] of INDONESIAN_CITIES) {
-    if (normalized.includes(city)) return coords;
+  const parts = location.toLowerCase().split(",").reverse();
+  for (const part of parts) {
+    let best: { coords: Coordinates; end: number; length: number } | undefined;
+    for (const [city, coords] of INDONESIAN_CITIES) {
+      const pattern = new RegExp(`\\b${city}\\b`, "g");
+      for (const match of part.matchAll(pattern)) {
+        const end = match.index + city.length;
+        if (!best || end > best.end || (end === best.end && city.length > best.length)) {
+          best = { coords, end, length: city.length };
+        }
+      }
+    }
+    if (best) return best.coords;
   }
   return undefined;
 }

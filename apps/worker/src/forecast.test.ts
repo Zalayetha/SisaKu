@@ -486,7 +486,50 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
         triggered: true,
       });
 
-      // 5. Geocoding fails on unknown location -> status: "unavailable", baseline rows still written
+      // 5. Address with another city in the street name -> prefers the city at the end (Surabaya)
+      await db
+        .update(outlets)
+        .set({ location: "Jl. Bandung No. 3, Surabaya" })
+        .where(eq(outlets.id, ids.outletA));
+      const streetCity = fakeWeatherServer({
+        geocoding: () => ({ results: [] }),
+        weatherForecast: () => ({
+          daily: {
+            time: ["2026-11-15"],
+            precipitation_sum: [6],
+            precipitation_probability_max: [65],
+          },
+        }),
+      });
+      const resStreetCity = await runForecast(ids.outletA, "2026-11-14", {
+        weatherServer: streetCity.server,
+      });
+      expect(resStreetCity.output.weather).toEqual({
+        status: "ok",
+        precipitation_mm: 6,
+        rain_probability_pct: 65,
+        triggered: true,
+      });
+      expect(streetCity.calls[1]).toMatchObject({
+        tool: "weather_forecast",
+        args: { latitude: -7.2575, longitude: 112.7521 },
+      });
+
+      // 6. Substring city ("Balikpapan" contains "bali") -> must not match Bali; degrades to unavailable
+      await db.update(outlets).set({ location: "Balikpapan" }).where(eq(outlets.id, ids.outletA));
+      const substringCity = fakeWeatherServer({
+        geocoding: () => ({ results: [] }),
+        weatherForecast: () => {
+          throw new Error("should not be called");
+        },
+      });
+      const resSubstring = await runForecast(ids.outletA, "2026-11-15", {
+        weatherServer: substringCity.server,
+      });
+      expect(resSubstring.output.weather).toEqual({ status: "unavailable" });
+      expect(resSubstring.rows).toHaveLength(2);
+
+      // 7. Geocoding fails on unknown location -> status: "unavailable", baseline rows still written
       await db
         .update(outlets)
         .set({ location: "Unknown Village XYZ" })
@@ -497,7 +540,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
           throw new Error("should not be called");
         },
       });
-      const resUnknown = await runForecast(ids.outletA, "2026-11-14", {
+      const resUnknown = await runForecast(ids.outletA, "2026-11-16", {
         weatherServer: unknownLoc.server,
       });
       expect(resUnknown.output.weather).toEqual({ status: "unavailable" });
