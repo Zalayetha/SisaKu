@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import {
   type AnalyzeOutput,
+  createForecastStep,
   createPipelineRuns,
   createPipelineWorker,
   defaultSteps,
@@ -15,6 +16,7 @@ import {
 import { explain, ScriptedModel } from "./testing/scripted-model";
 import { readRun } from "./testing/runs";
 import { testRedis, testRedisUrl } from "./testing/redis";
+import { NO_ADJUSTMENTS_MODEL } from "./testing/steps";
 
 // The Analyze step, observed through whole pipeline runs. Each case writes its own days in a month
 // of its own, so cases do not see each other's sales or waste. Rendang is 0.120 kg a portion at
@@ -56,7 +58,10 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     const worker = createPipelineWorker({
       db,
       servers,
-      steps: defaultSteps({ model }),
+      steps: {
+        ...defaultSteps({ model }),
+        forecast: createForecastStep({ model: NO_ADJUSTMENTS_MODEL }),
+      },
       redis: redis.redis,
       log: () => undefined,
     });

@@ -268,12 +268,13 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline traces", { timeout: 15_00
 
     const { run } = await readRun(runId);
     const analyzed = spans.filter((span) => span.start.runMetadata?.step === "analyze");
+    const analyzeAgentRuns = agentRuns.filter(({ trace }) => trace?.metadata?.step === "analyze");
     expect(analyzed).toHaveLength(2);
-    expect(agentRuns.map(({ trace }) => [trace?.traceId, trace?.parentObservationId])).toEqual(
-      analyzed.map((span) => [run.traceId, span.id]),
-    );
+    expect(
+      analyzeAgentRuns.map(({ trace }) => [trace?.traceId, trace?.parentObservationId]),
+    ).toEqual(analyzed.map((span) => [run.traceId, span.id]));
     // The agent's own labels say which run it belongs to as well.
-    expect(agentRuns[0]!.trace?.metadata).toMatchObject({
+    expect(analyzeAgentRuns[0]!.trace?.metadata).toMatchObject({
       agent: "nightly-pipeline",
       run_id: runId,
       outlet_id: ids.outletA,

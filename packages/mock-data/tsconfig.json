@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "paths": { "@sisaku/db": ["../db/src/index.ts"] }
+    "paths": {
+      "@sisaku/db": ["../db/src/index.ts"],
+      "@sisaku/shared": ["../shared/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

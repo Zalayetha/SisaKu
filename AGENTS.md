@@ -108,9 +108,10 @@ Add a link here whenever a document is created.
 ## Agent instructions
 
 Each agent has its own instructions version and changelog in `packages/agents`: the Copilot's
-`COPILOT_INSTRUCTIONS_VERSION` with `INSTRUCTIONS-CHANGELOG.md` (ADR 0015), and the spike
+`COPILOT_INSTRUCTIONS_VERSION` with `INSTRUCTIONS-CHANGELOG.md` (ADR 0015), the spike
 investigator's `SPIKE_INVESTIGATOR_INSTRUCTIONS_VERSION` with `SPIKE-INVESTIGATOR-CHANGELOG.md`
-(ADR 0018). Every change to an agent's instructions, or to a tool description or prompt its model
+(ADR 0018), and the forecast adjustor's `FORECAST_ADJUSTOR_INSTRUCTIONS_VERSION` with
+`FORECAST-ADJUSTOR-CHANGELOG.md` (ADR 0019). Every change to an agent's instructions, or to a tool description or prompt its model
 sees, bumps that agent's version and adds an entry to its changelog in the same change. The entry
 records the rule text, why, the eval it should move, and the instructions fingerprint; each
 agent's test in `packages/agents` fails until it is updated and prints the new value.

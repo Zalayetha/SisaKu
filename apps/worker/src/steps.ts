@@ -77,7 +77,7 @@ export function defaultSteps({ model, weatherServer }: StepDeps): PipelineSteps 
   return {
     ingest: ingestStep,
     analyze: createAnalyzeStep({ model }),
-    forecast: createForecastStep({ weatherServer }),
+    forecast: createForecastStep({ model, weatherServer }),
     recommend: stubStep("recommend"),
     report: stubStep("report"),
   };
