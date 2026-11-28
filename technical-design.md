@@ -21,7 +21,7 @@ Sisaku has two agents built on the Anvia SDK: an autonomous nightly pipeline (th
 flowchart TB
   subgraph Pipeline["Agentic pipeline: runs nightly, no prompt"]
     direction LR
-    T["Trigger<br/>BullMQ cron"] --> I["Ingest<br/>sales, waste"] --> A["Analyze<br/>waste causes"] --> F["Forecast<br/>per item"] --> R["Recommend<br/>prep qty"] --> Rep["Report<br/>brief, CO₂e"]
+    T["Trigger<br/>BullMQ cron"] --> I["Ingest<br/>sales, waste"] --> A["Analyze<br/>waste spikes"] --> F["Forecast<br/>per item"] --> R["Recommend<br/>prep qty"] --> Rep["Report<br/>brief, CO₂e"]
   end
   MCP["Shared MCP tool layer<br/>kitchen-mcp · impact-mcp"]
   DB[("Postgres<br/>data, forecasts")]
@@ -46,7 +46,7 @@ The pipeline runs without anyone asking; the Copilot acts only when a person mes
 | Step | What the agent does | Tools |
 | --- | --- | --- |
 | Ingest | Pulls the day's sales, prep log and waste entries; notes gaps such as no waste logged | `get_menu`, `get_sales`, `get_prep_log`, `query_waste` |
-| Analyze | Groups waste by item and cause; for any item above double its 14-day average, investigates (sales drop, over-prep, spoilage) before naming a cause; max 5 tool calls | `query_waste`, `get_sales`, `search_knowledge` |
+| Analyze | Groups the day's waste by item and cause. Fixed code flags waste spikes: items above double their daily average (over the days in the 14 before that the item sold, at least 7) and at least 1 kg. The spike investigator explains the 3 largest, one run each with at most 5 tool calls, as a sales drop, over-prep, spoilage or unexplained; the rest stay unexplained (ADR 0018). `search_knowledge` is added once RAG exists (D10) | `query_waste`, `get_sales`, `get_prep_log`, `list_entries` |
 | Forecast | Computes a plain statistical forecast per item (e.g. average of the last 4 same weekdays), then the LLM may adjust it for holidays, Ramadan or tomorrow's rain (Open-Meteo MCP) with a stated reason; new outlets with little history fall back to the manager's usual prep, shown as low confidence | `get_sales`, `get_calendar`, Open-Meteo MCP tools |
 | Recommend | Turns forecasts into prep quantities with confidence; flags changes over 30% for approval; stretch: checks donatable surplus and drafts a pickup | `get_menu`, `search_knowledge`, `draft_pickup` |
 | Report | Writes the daily brief with Rupiah, kg and CO₂e and citations; a separate job sends it to the manager on Telegram. On Mondays there is also a weekly owner report | `compute_co2e` |
@@ -143,7 +143,7 @@ When something fails, the system falls back to the plain forecast and tells the 
 | A pipeline step fails | Only that step reruns; earlier outputs are kept. Without a fallback the run stops as failed until the step is retried |
 | The worker is killed during a step | Another worker, or the same one restarted, runs that step again within a minute. A kill uses up one of the step's 4 attempts; after the last one it uses its fallback or fails |
 | All workers, Redis or Postgres are down at 22:00 | The night is caught up once they are back before 06:00 outlet time; later it is skipped and logged |
-| Analyze step loops | Hard limit of 5 tool calls per item |
+| Analyze step loops | Hard limit of 5 tool calls per investigated spike: the 6th is refused, and a spike with no answer stays unexplained; at most 3 spikes are investigated a night |
 
 **Guardrails**
 

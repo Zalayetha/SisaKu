@@ -1,8 +1,9 @@
+import type { CompletionModel } from "@anvia/core";
 import type { AgentObservabilityOptions, AgentTraceOptions } from "@anvia/core/observability";
 import type { McpServer } from "@anvia/core/mcp";
 import type { PipelineStep } from "@sisaku/db";
 import * as z from "zod";
-import { analyzeStep } from "./analyze";
+import { createAnalyzeStep } from "./analyze";
 import { ingestStep } from "./ingest";
 import type { Tx } from "./runs";
 
@@ -60,10 +61,19 @@ function stubStep(name: PipelineStep): StepDefinition<z.infer<typeof stubOutput>
   return { name, output: stubOutput, run: async () => ({ stub: true }) };
 }
 
-export const DEFAULT_STEPS: PipelineSteps = {
-  ingest: ingestStep,
-  analyze: analyzeStep,
-  forecast: stubStep("forecast"),
-  recommend: stubStep("recommend"),
-  report: stubStep("report"),
+/** What the pipeline's own steps are built with. */
+export type StepDeps = {
+  /** The model every agent a step runs uses (technical design: one model for every agent). */
+  readonly model: CompletionModel;
 };
+
+/** The nightly pipeline's steps. */
+export function defaultSteps({ model }: StepDeps): PipelineSteps {
+  return {
+    ingest: ingestStep,
+    analyze: createAnalyzeStep({ model }),
+    forecast: stubStep("forecast"),
+    recommend: stubStep("recommend"),
+    report: stubStep("report"),
+  };
+}

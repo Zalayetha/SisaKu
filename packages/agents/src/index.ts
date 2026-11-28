@@ -5,3 +5,4 @@ export * from "./lens";
 export * from "./mcp";
 export * from "./model";
 export * from "./scoped-tools";
+export * from "./spike-investigator";

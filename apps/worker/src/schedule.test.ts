@@ -10,13 +10,13 @@ import {
   createPipelineRuns,
   createPipelineSchedule,
   createPipelineWorker,
-  DEFAULT_STEPS,
   PermanentError,
   PIPELINE_QUEUE,
   queueOptions,
   type PipelineSchedule,
   type PipelineSteps,
 } from "./index";
+import { TEST_STEPS } from "./testing/steps";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import { deleteRuns, expectStatus, readRun } from "./testing/runs";
 
@@ -77,7 +77,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline schedule", { timeout: 15_
       servers: mcp.servers,
       redis: redis.redis,
       ...(used ? { schedule: used } : {}),
-      steps: { ...DEFAULT_STEPS, ...steps },
+      steps: { ...TEST_STEPS, ...steps },
       log: () => undefined,
     });
     workers.push(worker);

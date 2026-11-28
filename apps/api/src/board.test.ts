@@ -8,13 +8,19 @@ import { connectInMemoryServers } from "@sisaku/agents/testing";
 import {
   createPipelineRuns,
   createPipelineWorker,
-  DEFAULT_STEPS,
   PermanentError,
   PIPELINE_QUEUE,
   queueOptions,
   type StepDefinition,
 } from "@sisaku/worker";
-import { deleteRuns, expectStatus, readRun, testRedis, testRedisUrl } from "@sisaku/worker/testing";
+import {
+  deleteRuns,
+  expectStatus,
+  readRun,
+  TEST_STEPS,
+  testRedis,
+  testRedisUrl,
+} from "@sisaku/worker/testing";
 import { Queue } from "bullmq";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import * as z from "zod";
@@ -65,7 +71,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Bull Board", { timeout: 30_000 }, 
       db,
       servers: mcp.servers,
       redis: redis.redis,
-      steps: { ...DEFAULT_STEPS, ...steps },
+      steps: { ...TEST_STEPS, ...steps },
       log: () => undefined,
     });
     workers.push(worker);

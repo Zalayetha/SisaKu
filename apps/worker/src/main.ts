@@ -1,8 +1,9 @@
-import { connectMcpServers, createLens } from "@sisaku/agents";
+import { connectMcpServers, createLens, createModel } from "@sisaku/agents";
 import { createDb } from "@sisaku/db";
 import { createPipelineRuns } from "./runs";
 import { createPipelineSchedule } from "./schedule";
 import { assertPostgres, assertRedis, pipelineRedis } from "./settings";
+import { defaultSteps } from "./steps";
 import { createPipelineLens } from "./trace";
 import { createPipelineWorker } from "./worker";
 
@@ -11,6 +12,7 @@ import { createPipelineWorker } from "./worker";
 const redis = pipelineRedis();
 // Its own service name, apart from the Copilot's.
 const lens = createLens("sisaku-pipeline");
+const model = createModel();
 const { db, pool } = createDb();
 await assertPostgres(db);
 await assertRedis(redis);
@@ -22,6 +24,7 @@ await schedule.sync();
 const worker = createPipelineWorker({
   db,
   servers: mcp.servers,
+  steps: defaultSteps({ model }),
   redis,
   schedule,
   lens: createPipelineLens(lens),

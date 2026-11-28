@@ -27,7 +27,6 @@ import {
 } from "./records";
 import type { Db, Tx } from "./runs";
 import {
-  DEFAULT_STEPS,
   DEFAULT_TIME_LIMIT_MS,
   PermanentError,
   type PipelineRun,
@@ -42,7 +41,7 @@ export type PipelineWorkerDeps = {
   db: Db;
   servers: readonly McpServer[];
   redis: PipelineRedis;
-  steps?: PipelineSteps;
+  steps: PipelineSteps;
   /** Left out, the worker executes runs but starts none. */
   schedule?: PipelineSchedule;
   /** Left out, runs are not traced. */
@@ -95,7 +94,7 @@ async function withinTimeLimit<T>(
 /** Executes pipeline runs, one BullMQ job per step. */
 export function createPipelineWorker(deps: PipelineWorkerDeps) {
   const { db } = deps;
-  const steps = deps.steps ?? DEFAULT_STEPS;
+  const { steps } = deps;
   const log = deps.log ?? ((message, error) => console.error(message, error ?? ""));
   const tracer = createPipelineTracer(deps.lens, log);
 

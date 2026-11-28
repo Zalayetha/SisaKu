@@ -8,11 +8,11 @@ import * as z from "zod";
 import {
   createPipelineRuns,
   createPipelineWorker,
-  DEFAULT_STEPS,
   type PipelineWorkerDeps,
   type StepContext,
   type StepDefinition,
 } from "./index";
+import { TEST_STEPS } from "./testing/steps";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import {
   deleteRuns,
@@ -54,6 +54,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     const worker = createPipelineWorker({
       db,
       servers: mcp.servers,
+      steps: TEST_STEPS,
       redis: redis.redis,
       log: () => undefined,
       ...extra,
@@ -142,7 +143,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       },
     };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    startWorker({ steps: { ...DEFAULT_STEPS, ingest, forecast } });
+    startWorker({ steps: { ...TEST_STEPS, ingest, forecast } });
 
     await expectStatus(runId, "succeeded");
     const { run, jobs } = await readRun(runId);
@@ -170,7 +171,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       run: async () => ({ flagged: "rendang" }) as never,
     };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    startWorker({ steps: { ...DEFAULT_STEPS, analyze } });
+    startWorker({ steps: { ...TEST_STEPS, analyze } });
 
     await expectStatus(runId, "failed");
     const { run, jobs } = await readRun(runId);
@@ -252,7 +253,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       else expect(String(r.reason)).toMatch(/already in progress/);
     }
     const ingest = countingStep("ingest");
-    startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
+    startWorker({ steps: { ...TEST_STEPS, ingest: ingest.step } });
     await expectStatus(rows[0]!.id, "succeeded");
     expect(ingest.started.count).toBe(1);
   });
@@ -271,7 +272,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
   it("does not run a step again that already has its result", async () => {
     const ingest = countingStep("ingest");
     const analyze = blockingStep("analyze");
-    const steps = { ...DEFAULT_STEPS, ingest: ingest.step, analyze: analyze.step };
+    const steps = { ...TEST_STEPS, ingest: ingest.step, analyze: analyze.step };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
     startWorker({ steps });
     await expect.poll(() => analyze.started.count).toBe(1);
@@ -296,7 +297,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
   it("waits for the current step when stopped", async () => {
     const ingest = blockingStep("ingest");
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
+    startWorker({ steps: { ...TEST_STEPS, ingest: ingest.step } });
     await expect.poll(() => ingest.started.count).toBe(1);
 
     const stopped = workers.splice(0)[0]!.stop(10_000);
@@ -311,7 +312,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
   it("stops after the time allowed even if the current step has not finished", async () => {
     const ingest = blockingStep("ingest");
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    startWorker({ steps: { ...DEFAULT_STEPS, ingest: ingest.step } });
+    startWorker({ steps: { ...TEST_STEPS, ingest: ingest.step } });
     await expect.poll(() => ingest.started.count).toBe(1);
 
     const before = Date.now();
@@ -370,7 +371,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
           return { from: "first worker" };
         },
       };
-      const steps = { ...DEFAULT_STEPS, ingest };
+      const steps = { ...TEST_STEPS, ingest };
       const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
       startWorker({ steps });
       await expect.poll(() => started).toBe(1);
@@ -399,7 +400,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     async (name) => {
       const late = blockingStep(name);
       const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-      startWorker({ steps: { ...DEFAULT_STEPS, [name]: late.step } });
+      startWorker({ steps: { ...TEST_STEPS, [name]: late.step } });
       await expect.poll(() => late.started.count).toBe(1);
       await workers.splice(0)[0]!.stop(0);
 
@@ -432,7 +433,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
       run: async () => ({ day: new Date() }),
     };
     const { runId } = await runs.startManual({ outlet: ids.outletA, date: DATE });
-    startWorker({ steps: { ...DEFAULT_STEPS, ingest } });
+    startWorker({ steps: { ...TEST_STEPS, ingest } });
     await expectStatus(runId, "failed");
     expect((await readRun(runId)).jobs.map((j) => j.status).slice(0, 2)).toEqual([
       "failed",

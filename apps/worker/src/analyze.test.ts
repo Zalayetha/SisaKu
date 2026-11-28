@@ -1,16 +1,19 @@
+import type { McpServer } from "@anvia/core/mcp";
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
-import { prepLogs, sales, wasteEntries } from "@sisaku/db";
+import { menuItems, prepLogs, sales, wasteEntries } from "@sisaku/db";
+import { inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
 import {
   type AnalyzeOutput,
   createPipelineRuns,
   createPipelineWorker,
-  DEFAULT_STEPS,
+  defaultSteps,
   SPIKE_WINDOW_DAYS,
 } from "./index";
-import { expectStatus, readRun } from "./testing/runs";
+import { explain, ScriptedModel } from "./testing/scripted-model";
+import { readRun } from "./testing/runs";
 import { testRedis, testRedisUrl } from "./testing/redis";
 
 // The Analyze step, observed through whole pipeline runs. Each case writes its own days in a month
@@ -37,18 +40,32 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     await pool?.end();
   });
 
-  /** Runs the pipeline and returns the run's status and its Analyze job. */
-  async function analyze(outlet: string, date: string) {
+  /**
+   * Runs the pipeline and returns the run's status and its Analyze job. Unless a test scripts
+   * one, the model answers every investigation at once with no explanation.
+   */
+  async function analyze(
+    outlet: string,
+    date: string,
+    {
+      model = new ScriptedModel(() => explain("unexplained")),
+      servers = mcp.servers,
+    }: { model?: ScriptedModel; servers?: readonly McpServer[] } = {},
+  ) {
     const { runId } = await runs.startManual({ outlet, date });
     const worker = createPipelineWorker({
       db,
-      servers: mcp.servers,
-      steps: DEFAULT_STEPS,
+      servers,
+      steps: defaultSteps({ model }),
       redis: redis.redis,
       log: () => undefined,
     });
     try {
-      await expectStatus(db, runId, "succeeded");
+      await expect
+        .poll(async () => (await readRun(db, runId)).run.status, { timeout: 10_000 })
+        .not.toBe("running");
+      const { run, jobs } = await readRun(db, runId);
+      expect(run.status, jobs.map((j) => j.error).join("; ")).toBe("succeeded");
       const job = (await readRun(db, runId)).job("analyze");
       return { status: job.status, output: job.output as AnalyzeOutput };
     } finally {
@@ -119,7 +136,12 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     await sell(ids.outletA, [ids.rendang], [date], 10);
     await waste(ids.outletA, ids.rendang, 0.6, window(date));
     await waste(ids.outletA, ids.rendang, 2.4, [date]);
-    const { status, output } = await analyze(ids.outletA, date);
+    const evidence = "Rendang sold 10 portions against 25 on a normal day, with 30 prepped.";
+    const model = ScriptedModel.of([
+      { toolCall: { name: "get_sales", input: { from: day(date, -7), to: date } } },
+      explain("sales_drop", evidence),
+    ]);
+    const { status, output } = await analyze(ids.outletA, date, { model });
     expect(status).toBe("succeeded");
     expect(output.spikes).toEqual([
       {
@@ -128,10 +150,20 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
         waste_kg: 2.4,
         average_kg: 0.6,
         days_counted: 14,
-        investigated: false,
-        explanation: { kind: "unexplained" },
+        investigated: true,
+        explanation: { kind: "sales_drop", evidence },
       },
     ]);
+    // One investigation, offered the four read tools and nothing else.
+    expect(model.runs).toHaveLength(1);
+    expect(model.requests[0]!.tools.map((t) => t.name).sort()).toEqual([
+      "get_prep_log",
+      "get_sales",
+      "list_entries",
+      "query_waste",
+    ]);
+    // Its prompt gives the spike's numbers.
+    expect(JSON.stringify(model.requests[0]!.chatHistory)).toMatch(/Rendang Sapi.*2\.4.*0\.6.*14/s);
   });
 
   it("flags nothing at exactly double the average, nor over double but under 1 kg", async () => {
@@ -142,10 +174,13 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     await waste(ids.outletA, ids.rendang, 1.2, [date]);
     await waste(ids.outletA, ids.nasi, 0.2, window(date));
     await waste(ids.outletA, ids.nasi, 0.9, [date]);
-    const { status, output } = await analyze(ids.outletA, date);
+    const model = ScriptedModel.of([]);
+    const { status, output } = await analyze(ids.outletA, date, { model });
     expect(status).toBe("succeeded");
     expect(output.waste_by_item).toHaveLength(2);
     expect(output.spikes).toEqual([]);
+    // No spike, no investigation.
+    expect(model.requests).toHaveLength(0);
   });
 
   it("flags an item with no waste in the window once it reaches 1 kg", async () => {
@@ -218,9 +253,11 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     const date = "2026-11-15";
     await sell(ids.outletA, [ids.nasi, ids.rendang], [...window(date), date]);
     await waste(ids.outletA, ids.rendang, 0.6, window(date));
-    const { status, output } = await analyze(ids.outletA, date);
+    const model = ScriptedModel.of([]);
+    const { status, output } = await analyze(ids.outletA, date, { model });
     expect(status).toBe("succeeded");
     expect(output).toEqual({ waste_by_item: [], waste_by_cause: [], spikes: [] });
+    expect(model.requests).toHaveLength(0);
   });
 
   it("totals the day's waste by item and by cause as query_waste does", async () => {
@@ -279,5 +316,113 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     await waste(ids.outletA, ids.nasi, 2, [date]);
     const { output } = await analyze(ids.outletA, date);
     expect(output.spikes.map((s) => s.item_id)).toEqual([ids.nasi, ids.rendang]);
+  });
+
+  /** The servers, with every call of the named tool that reaches kitchen-mcp recorded. */
+  function recording(remoteName: string) {
+    const calls: unknown[] = [];
+    const servers = mcp.servers.map((server) => ({
+      ...server,
+      tools: server.tools.map((tool) =>
+        tool.mcp.remoteName === remoteName
+          ? {
+              ...tool,
+              call: (args: unknown, context?: unknown) => {
+                calls.push(args);
+                return tool.call(args as never, context as never);
+              },
+            }
+          : tool,
+      ),
+    })) as McpServer[];
+    return { servers, calls };
+  }
+
+  it("investigates the three largest spikes only, one run each", async () => {
+    const date = "2027-05-15";
+    const extra = await db
+      .insert(menuItems)
+      .values(
+        ["Soto Ayam", "Gado-Gado", "Tempe Goreng"].map((name) => ({
+          outletId: ids.outletA,
+          name,
+          category: "main",
+          costPerPortion: "8000",
+          portionWeightKg: "0.25",
+          foodCategory: "vegetables",
+        })),
+      )
+      .returning();
+    const items = [ids.nasi, ids.rendang, ...extra.map((item) => item.id)];
+    try {
+      await sell(ids.outletA, items, [...window(date), date]);
+      // 5, 4, 3, 2 and 1.5 kg, none in the window before: five spikes.
+      for (const [i, item] of items.entries()) {
+        await waste(ids.outletA, item, [5, 4, 3, 2, 1.5][i]!, [date]);
+      }
+      const model = new ScriptedModel(() => explain("over_prep", "Prep was double the usual."));
+      const { output } = await analyze(ids.outletA, date, { model });
+      expect(output.spikes.map((s) => [s.item_id, s.investigated, s.explanation.kind])).toEqual([
+        [items[0], true, "over_prep"],
+        [items[1], true, "over_prep"],
+        [items[2], true, "over_prep"],
+        [items[3], false, "unexplained"],
+        [items[4], false, "unexplained"],
+      ]);
+      expect(model.runs).toHaveLength(3);
+    } finally {
+      const extraIds = extra.map((item) => item.id);
+      await db.delete(wasteEntries).where(inArray(wasteEntries.itemId, extraIds));
+      await db.delete(sales).where(inArray(sales.itemId, extraIds));
+      await db.delete(menuItems).where(inArray(menuItems.id, extraIds));
+    }
+  });
+
+  it("refuses an investigation's sixth tool call, and leaves a spike with no answer unexplained", async () => {
+    const date = "2027-06-15";
+    await sell(ids.outletA, [ids.rendang], [...window(date), date]);
+    await waste(ids.outletA, ids.rendang, 2, [date]);
+    // No step's own reads call list_entries, so every call recorded is the model's.
+    const { servers, calls } = recording("list_entries");
+    const model = new ScriptedModel(() => ({
+      toolCall: { name: "list_entries", input: { from: date, to: date } },
+    }));
+    const { status, output } = await analyze(ids.outletA, date, { model, servers });
+    expect(status).toBe("succeeded");
+    expect(calls).toHaveLength(5);
+    // The request after the sixth call carries its refusal.
+    expect(JSON.stringify(model.requests[6]!.chatHistory.at(-1))).toMatch(/limit of 5 reached/);
+    expect(output.spikes).toMatchObject([
+      { item_id: ids.rendang, investigated: true, explanation: { kind: "unexplained" } },
+    ]);
+  });
+
+  it("leaves a spike unexplained when the answer is not a valid explanation", async () => {
+    const date = "2027-07-15";
+    await sell(ids.outletA, [ids.rendang], [...window(date), date]);
+    await waste(ids.outletA, ids.rendang, 2, [date]);
+    const model = ScriptedModel.of([{ text: '{"kind": "sales_drop"}' }]); // no evidence
+    const { output } = await analyze(ids.outletA, date, { model });
+    expect(output.spikes).toMatchObject([
+      { investigated: true, explanation: { kind: "unexplained" } },
+    ]);
+  });
+
+  it("gives an investigation the run's outlet, whatever outlet the model asks for", async () => {
+    const date = "2027-08-15";
+    await sell(ids.outletA, [ids.rendang], [...window(date), date]);
+    await waste(ids.outletA, ids.rendang, 2, [date]);
+    const { servers, calls } = recording("list_entries");
+    const model = ScriptedModel.of([
+      {
+        toolCall: {
+          name: "list_entries",
+          input: { outlet_id: ids.outletB, from: date, to: date },
+        },
+      },
+      explain("unexplained"),
+    ]);
+    await analyze(ids.outletA, date, { model, servers });
+    expect(calls).toEqual([{ outlet_id: ids.outletA, from: date, to: date }]);
   });
 });

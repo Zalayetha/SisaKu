@@ -13,9 +13,9 @@ import type {
   PipelineRunErrorArgs,
   PipelineRunStartArgs,
 } from "@anvia/core/pipeline";
-import { createLens } from "@sisaku/agents";
+import { createLens, SPIKE_INVESTIGATOR_INSTRUCTIONS_VERSION } from "@sisaku/agents";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
-import { PIPELINE_STEPS } from "@sisaku/db";
+import { PIPELINE_STEPS, sales, wasteEntries } from "@sisaku/db";
 import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import * as z from "zod";
@@ -24,12 +24,14 @@ import {
   createPipelineLens,
   createPipelineRuns,
   createPipelineWorker,
-  DEFAULT_STEPS,
+  defaultSteps,
   PermanentError,
   type PipelineWorkerDeps,
   type StepContext,
   type StepDefinition,
 } from "./index";
+import { explain, ScriptedModel } from "./testing/scripted-model";
+import { TEST_STEPS } from "./testing/steps";
 import { startLensServer } from "./testing/lens-server";
 import { testRedis, testRedisUrl } from "./testing/redis";
 import {
@@ -149,7 +151,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline traces", { timeout: 15_00
       db,
       servers: mcp.servers,
       redis: redis.redis,
-      steps: { ...DEFAULT_STEPS, ...Object.fromEntries(steps.map((s) => [s.name, s])) },
+      steps: { ...TEST_STEPS, ...Object.fromEntries(steps.map((s) => [s.name, s])) },
       log: () => undefined,
       ...(lens ? { lens } : {}),
       ...extra,
@@ -278,6 +280,48 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("pipeline traces", { timeout: 15_00
       business_date: DATE,
       step: "analyze",
       attempt: 1,
+    });
+  });
+
+  it("nests a spike investigation under the Analyze attempt's span, labelled with its instructions version", async () => {
+    // Rendang sells every day, and wastes 2 kg on the business date only: one spike.
+    const date = "2027-09-15";
+    const days = Array.from({ length: 15 }, (_, i) =>
+      new Date(Date.UTC(2027, 8, 1 + i)).toISOString().slice(0, 10),
+    );
+    await db
+      .insert(sales)
+      .values(
+        days.map((d) => ({ outletId: ids.outletA, itemId: ids.rendang, date: d, qtySold: 9 })),
+      );
+    await db.insert(wasteEntries).values({
+      outletId: ids.outletA,
+      itemId: ids.rendang,
+      loggedAt: new Date(`${date}T12:00:00+07:00`),
+      weightKg: "2.000",
+      cause: "over_prep",
+      source: "text",
+    });
+    const { spans, agentRuns, lens } = recordingLens();
+    const model = new ScriptedModel(() => explain("unexplained"));
+    const { runId } = await runs.startManual({ outlet: ids.outletA, date });
+    startWorker(lens, [], { steps: defaultSteps({ model }) });
+    await expectStatus(runId, "succeeded");
+
+    const { run } = await readRun(runId);
+    const analyzed = spans.filter((span) => span.start.runMetadata?.step === "analyze");
+    expect(agentRuns).toHaveLength(1);
+    expect(agentRuns[0]!.trace).toMatchObject({
+      traceId: run.traceId,
+      parentObservationId: analyzed[0]!.id,
+      version: SPIKE_INVESTIGATOR_INSTRUCTIONS_VERSION,
+      metadata: {
+        agent: "spike-investigator",
+        run_id: runId,
+        step: "analyze",
+        item_id: ids.rendang,
+        instructions_version: SPIKE_INVESTIGATOR_INSTRUCTIONS_VERSION,
+      },
     });
   });
 
