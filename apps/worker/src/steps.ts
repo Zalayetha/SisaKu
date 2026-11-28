@@ -4,6 +4,7 @@ import type { McpServer } from "@anvia/core/mcp";
 import type { PipelineStep } from "@sisaku/db";
 import * as z from "zod";
 import { createAnalyzeStep } from "./analyze";
+import { createForecastStep } from "./forecast";
 import { ingestStep } from "./ingest";
 import type { Tx } from "./runs";
 
@@ -72,7 +73,7 @@ export function defaultSteps({ model }: StepDeps): PipelineSteps {
   return {
     ingest: ingestStep,
     analyze: createAnalyzeStep({ model }),
-    forecast: stubStep("forecast"),
+    forecast: createForecastStep(),
     recommend: stubStep("recommend"),
     report: stubStep("report"),
   };

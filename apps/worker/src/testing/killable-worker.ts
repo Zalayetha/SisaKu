@@ -20,9 +20,9 @@ function observed(step: StepDefinition): StepDefinition {
       return step.name === HANG_STEP ? hang() : step.run(context);
     },
     ...(step.name === FALLBACK_STEP && {
-      fallback: async () => {
+      fallback: async (context) => {
         console.log(`fallback ${step.name}`);
-        return HANG_FALLBACK ? hang() : { stub: true };
+        return HANG_FALLBACK ? hang() : step.run(context);
       },
     }),
   };

@@ -4,6 +4,7 @@ import { connectInMemoryServers } from "@sisaku/agents/testing";
 import {
   agentRuns,
   createDb,
+  forecasts,
   menuItems,
   outlets,
   pipelineJobResults,
@@ -198,6 +199,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Ingest step", () => {
         { type: "sold_not_prepped", item_id: soup!.id, item_name: "Sayur Asem" },
       ]),
     );
+    await db.delete(forecasts).where(eq(forecasts.itemId, soup!.id));
     await db.delete(sales).where(eq(sales.itemId, soup!.id));
     await db.delete(menuItems).where(eq(menuItems.id, soup!.id));
   });
