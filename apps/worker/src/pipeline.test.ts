@@ -116,7 +116,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     expect(jobs.map((j) => [j.step, j.status, j.attempts, j.output])).toEqual([
       ["ingest", "succeeded", 1, expect.objectContaining({ gaps: [] })],
       ["analyze", "succeeded", 1, expect.objectContaining({ spikes: [] })],
-      ["forecast", "succeeded", 1, { stub: true }],
+      ["forecast", "succeeded", 1, expect.objectContaining({ target_date: "2026-03-02" })],
       ["recommend", "succeeded", 1, { stub: true }],
       ["report", "succeeded", 1, { stub: true }],
     ]);

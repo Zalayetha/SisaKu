@@ -1,7 +1,7 @@
 import type { McpServer } from "@anvia/core/mcp";
 import type { McpClientGroup } from "@anvia/mcp";
 import { connectInMemoryServers } from "@sisaku/agents/testing";
-import { menuItems, prepLogs, sales, wasteEntries } from "@sisaku/db";
+import { forecasts, menuItems, prepLogs, sales, wasteEntries } from "@sisaku/db";
 import { inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ids, setupTestDb, testDbUrl } from "../../../packages/kitchen-mcp/src/test-fixture";
@@ -378,6 +378,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
       expect(model.runs).toHaveLength(3);
     } finally {
       const extraIds = extra.map((item) => item.id);
+      await db.delete(forecasts).where(inArray(forecasts.itemId, extraIds));
       await db.delete(wasteEntries).where(inArray(wasteEntries.itemId, extraIds));
       await db.delete(sales).where(inArray(sales.itemId, extraIds));
       await db.delete(menuItems).where(inArray(menuItems.id, extraIds));
