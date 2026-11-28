@@ -458,10 +458,10 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     it("retries once after a model error, and saves the explanations from the retry", async () => {
       const date = "2027-10-15";
       await sell(ids.outletA, [ids.rendang], [...window(date), date]);
-      await waste(ids.outletA, ids.rendang, 2, [date]);
+      await waste(ids.outletA, ids.rendang, 2, [date], "spoilage");
       const model = ScriptedModel.of([
         { error: new Error("rate limited") },
-        explain("spoilage", "All 1 entries were spoilage."),
+        explain("spoilage", "The one entry was spoilage."),
       ]);
       const { status, attempts, output } = await analyze(ids.outletA, date, { model });
       expect(status).toBe("succeeded");
@@ -479,7 +479,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
       // Nasi's investigation answers each time, naming the attempt; rendang's fails the first time.
       let attempt = 0;
       const model = new ScriptedModel((request) => {
-        if (!JSON.stringify(request.chatHistory).includes(ids.rendang)) {
+        if (JSON.stringify(request.chatHistory[0]).includes(`item id ${ids.nasi}`)) {
           attempt += 1;
           return explain("over_prep", `Attempt ${attempt}.`);
         }
