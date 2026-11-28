@@ -13,15 +13,18 @@ const { servers } = await connectInMemoryServers(db);
 const hang = () => new Promise<never>(() => {});
 
 function observed(step: StepDefinition): StepDefinition {
+  const { name, output, timeLimitMs } = step;
   return {
-    ...step,
+    name,
+    output,
+    ...(timeLimitMs !== undefined && { timeLimitMs }),
     run: (context) => {
-      console.log(`start ${step.name}`);
-      return step.name === HANG_STEP ? hang() : step.run(context);
+      console.log(`start ${name}`);
+      return name === HANG_STEP ? hang() : step.run(context);
     },
-    ...(step.name === FALLBACK_STEP && {
+    ...(name === FALLBACK_STEP && {
       fallback: async (context) => {
-        console.log(`fallback ${step.name}`);
+        console.log(`fallback ${name}`);
         return HANG_FALLBACK ? hang() : step.run(context);
       },
     }),
