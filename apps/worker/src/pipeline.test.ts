@@ -152,6 +152,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("nightly pipeline", () => {
     expect(seen!.run).toEqual({
       id: runId,
       outletId: ids.outletA,
+      location: null,
       timezone: "Asia/Jakarta",
       businessDate: DATE,
     });
