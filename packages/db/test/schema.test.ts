@@ -20,6 +20,14 @@ const tables = async (pool: pg.Pool) =>
     )
   ).rows.map((r) => r.table_name);
 
+const enumValues = async (pool: pg.Pool, typeName: string) =>
+  (
+    await pool.query(
+      "select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid where t.typname = $1 order by e.enumsortorder",
+      [typeName],
+    )
+  ).rows.map((r) => r.enumlabel);
+
 it.skipIf(!url)("migrations apply, create 13 tables, and roll back", async () => {
   const pool = new pg.Pool({ connectionString: url });
   try {
@@ -39,6 +47,12 @@ it.skipIf(!url)("migrations apply, create 13 tables, and roll back", async () =>
       "users",
       "waste_entries",
     ]);
+    expect(await enumValues(pool, "recommendation_status")).toEqual([
+      "pending",
+      "approved",
+      "rejected",
+      "not_required",
+    ]);
     await expect(
       pool
         .query("insert into outlets(name) values ('x') returning id")
@@ -48,6 +62,19 @@ it.skipIf(!url)("migrations apply, create 13 tables, and roll back", async () =>
           ]),
         ),
     ).rejects.toThrow();
+    run("down");
+    expect(await enumValues(pool, "recommendation_status")).toEqual([
+      "pending",
+      "approved",
+      "rejected",
+    ]);
+    run("up");
+    expect(await enumValues(pool, "recommendation_status")).toEqual([
+      "pending",
+      "approved",
+      "rejected",
+      "not_required",
+    ]);
     run("reset");
     expect(await tables(pool)).toEqual([]);
     run("up");

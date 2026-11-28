@@ -6,7 +6,8 @@ import * as z from "zod";
 import { createAnalyzeStep } from "./analyze";
 import { createForecastStep } from "./forecast";
 import { ingestStep } from "./ingest";
-import type { Tx } from "./runs";
+import { recommendStep } from "./recommend";
+import type { Db, Tx } from "./runs";
 
 /** Thrown by a step when trying again cannot help, so it gets no other attempt. */
 export class PermanentError extends Error {}
@@ -25,6 +26,8 @@ export type PipelineRun = {
 
 export type StepContext = {
   readonly run: PipelineRun;
+  /** Database handle for reading persisted domain rows and step states (writes go through `onSave`). */
+  readonly db: Db;
   /** The outputs of the steps before this one, validated against their schemas. */
   readonly outputs: Readonly<Partial<Record<PipelineStep, unknown>>>;
   readonly servers: readonly McpServer[];
@@ -78,7 +81,7 @@ export function defaultSteps({ model, weatherServer }: StepDeps): PipelineSteps 
     ingest: ingestStep,
     analyze: createAnalyzeStep({ model }),
     forecast: createForecastStep({ model, weatherServer }),
-    recommend: stubStep("recommend"),
+    recommend: recommendStep,
     report: stubStep("report"),
   };
 }

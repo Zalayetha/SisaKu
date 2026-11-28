@@ -40,6 +40,7 @@ export const recommendationStatus = pgEnum("recommendation_status", [
   "pending",
   "approved",
   "rejected",
+  "not_required",
 ]);
 export const pickupStatus = pgEnum("pickup_status", [
   "draft",

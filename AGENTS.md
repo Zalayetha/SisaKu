@@ -98,6 +98,7 @@ Supporting context, ideas, assumptions, and open questions.
 - [0017: Nightly pipeline on BullMQ](decision/0017-nightly-pipeline-on-bullmq.md)
 - [0018: Analyze step finds and explains waste spikes](decision/0018-analyze-step-finds-and-explains-waste-spikes.md)
 - [0019: Forecast step baseline and LLM adjustment](decision/0019-forecast-step-baseline-and-llm-adjustment.md)
+- [0020: Recommend step and approval gate](decision/0020-recommend-step-and-approval-gate.md)
 
 ### Product
 

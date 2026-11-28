@@ -2,6 +2,7 @@ export * from "./analyze";
 export * from "./forecast";
 export * from "./ingest";
 export * from "./queue";
+export * from "./recommend";
 export * from "./runs";
 export * from "./schedule";
 export * from "./steps";
