@@ -49,11 +49,13 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
       servers = mcp.servers,
       weatherServer,
       beforeWorker,
+      expectedRunStatus = "succeeded",
     }: {
       model?: CompletionModel;
       servers?: readonly McpServer[];
       weatherServer?: McpServer;
       beforeWorker?: (runId: string) => Promise<void>;
+      expectedRunStatus?: "succeeded" | "failed";
     } = {},
   ) {
     const { runId } = await runs.startManual({ outlet, date });
@@ -70,7 +72,7 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
         .poll(async () => (await readRun(db, runId)).run.status, { timeout: 10_000 })
         .not.toBe("running");
       const { run, jobs, job: jobOf, statuses } = await readRun(db, runId);
-      expect(run.status, jobs.map((j) => j.error).join("; ")).toBe("succeeded");
+      expect(run.status, jobs.map((j) => j.error).join("; ")).toBe(expectedRunStatus);
       const job = jobOf("forecast");
       const rows = await db.select().from(forecasts).where(eq(forecasts.runId, runId));
       return {
@@ -862,5 +864,203 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Forecast step", () => {
     expect(retryRun.status).toBe("succeeded");
     expect(retryRun.attempts).toBe(2);
     expect(retryRun.rows).toHaveLength(2);
+  });
+
+  it("degrades to plain baseline via fallback after 4 LLM errors and lets the pipeline continue", async () => {
+    // Business date 2027-04-30 (Friday) -> target 2027-05-01 (Saturday, Labour Day 2027).
+    // Nasi has 2 matching Saturdays (100, 110 -> baseline 105, low_confidence: false).
+    // Rendang has 0 matching Saturdays and 2 prep logs in the 14-day window (40, 46 -> baseline 43, low_confidence: true).
+    await db.insert(sales).values([
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2027-04-17", qtySold: 100 },
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2027-04-24", qtySold: 110 },
+    ]);
+    await db.insert(prepLogs).values([
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2027-04-20", qtyPrepped: 40 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2027-04-29", qtyPrepped: 46 },
+    ]);
+
+    const model = new ScriptedModel(() => {
+      throw new Error("LLM 503 overloaded");
+    });
+
+    const { status, attempts, error, statuses, output, rows } = await runForecast(
+      ids.outletA,
+      "2027-04-30",
+      {
+        model,
+        // Seed a stale row to verify the fallback replaces prior rows without duplicates.
+        beforeWorker: async (runId) => {
+          await db.insert(forecasts).values({
+            runId,
+            outletId: ids.outletA,
+            itemId: ids.nasi,
+            date: "2027-05-01",
+            baselineQty: 999,
+            adjustedQty: 999,
+            reason: "stale",
+            model: "baseline",
+          });
+        },
+      },
+    );
+
+    expect(status).toBe("degraded");
+    expect(attempts).toBe(4);
+    expect(model.requests).toHaveLength(4);
+    expect(error).toContain("LLM 503 overloaded");
+    expect(statuses).toEqual(["succeeded", "succeeded", "degraded", "succeeded", "succeeded"]);
+
+    expect(output).toEqual({
+      target_date: "2027-05-01",
+      weather: null,
+      calendar_events: [{ name: "Labour Day 2027", kind: "holiday" }],
+      llm_called: false,
+      adjusted_count: 0,
+      items: expect.arrayContaining([
+        {
+          forecast_id: expect.any(String),
+          item_id: ids.nasi,
+          low_confidence: false,
+          history_days: 2,
+        },
+        {
+          forecast_id: expect.any(String),
+          item_id: ids.rendang,
+          low_confidence: true,
+          history_days: 0,
+        },
+      ]),
+    });
+    expect(output.items).toHaveLength(2);
+
+    const outByItem = new Map(output.items.map((i) => [i.item_id, i]));
+    const rowByItem = new Map(rows.map((r) => [r.itemId, r]));
+    expect(rows).toHaveLength(2);
+    expect(rowByItem.get(ids.nasi)).toMatchObject({
+      id: outByItem.get(ids.nasi)!.forecast_id,
+      outletId: ids.outletA,
+      itemId: ids.nasi,
+      date: "2027-05-01",
+      baselineQty: 105,
+      adjustedQty: 105,
+      reason: "AI adjustment unavailable today",
+      model: "baseline",
+    });
+    expect(rowByItem.get(ids.rendang)).toMatchObject({
+      id: outByItem.get(ids.rendang)!.forecast_id,
+      outletId: ids.outletA,
+      itemId: ids.rendang,
+      date: "2027-05-01",
+      baselineQty: 43,
+      adjustedQty: 43,
+      reason: "AI adjustment unavailable today",
+      model: "baseline",
+    });
+  });
+
+  it("degrades to plain baseline when the LLM returns invalid output on all 4 attempts", async () => {
+    // Business date 2027-08-16 (Monday) -> target 2027-08-17 (Tuesday, Independence Day 2027).
+    // Matching Tuesdays: 2027-08-03, 2027-08-10.
+    await db.insert(sales).values([
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2027-08-03", qtySold: 80 },
+      { outletId: ids.outletA, itemId: ids.nasi, date: "2027-08-10", qtySold: 90 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2027-08-03", qtySold: 30 },
+      { outletId: ids.outletA, itemId: ids.rendang, date: "2027-08-10", qtySold: 34 },
+    ]);
+
+    const model = ScriptedModel.of([
+      { text: "{malformed json" },
+      {
+        text: JSON.stringify({
+          adjustments: [{ item_id: ids.nasi, adjusted_qty: 95, reason: "   " }],
+        }),
+      },
+      {
+        text: JSON.stringify({
+          adjustments: [{ item_id: ids.nasi, adjusted_qty: -5, reason: "Negative" }],
+        }),
+      },
+      {
+        text: JSON.stringify({
+          adjustments: [
+            {
+              item_id: "00000000-0000-4000-8000-000000000999",
+              adjusted_qty: 50,
+              reason: "Unknown item",
+            },
+          ],
+        }),
+      },
+    ]);
+
+    const { status, attempts, error, statuses, output, rows } = await runForecast(
+      ids.outletA,
+      "2027-08-16",
+      { model },
+    );
+
+    expect(status).toBe("degraded");
+    expect(attempts).toBe(4);
+    expect(model.requests).toHaveLength(4);
+    expect(error).toBeTruthy();
+    expect(statuses).toEqual(["succeeded", "succeeded", "degraded", "succeeded", "succeeded"]);
+    expect(output.llm_called).toBe(false);
+    expect(output.adjusted_count).toBe(0);
+    expect(rows).toHaveLength(2);
+
+    const rowByItem = new Map(rows.map((r) => [r.itemId, r]));
+    expect(rowByItem.get(ids.nasi)).toMatchObject({
+      baselineQty: 85,
+      adjustedQty: 85,
+      reason: "AI adjustment unavailable today",
+      model: "baseline",
+    });
+    expect(rowByItem.get(ids.rendang)).toMatchObject({
+      baselineQty: 32,
+      adjustedQty: 32,
+      reason: "AI adjustment unavailable today",
+      model: "baseline",
+    });
+  });
+
+  it("fails the step and stops the pipeline run when kitchen-mcp fails during Forecast and its fallback", async () => {
+    // Business date 2027-12-24 (Friday) -> target 2027-12-25 (Saturday, Christmas 2027).
+    // Ingest calls get_menu once first; failing subsequent get_menu calls lets ingest and analyze
+    // succeed, then fails all 4 Forecast attempts and its fallback.
+    let totalGetMenuCalls = 0;
+    let forecastGetMenuCalls = 0;
+    const failingServers: McpServer[] = mcp.servers.map((server) => ({
+      ...server,
+      tools: server.tools.map((tool) =>
+        tool.mcp.remoteName === "get_menu"
+          ? {
+              ...tool,
+              call: async (args, context) => {
+                totalGetMenuCalls += 1;
+                if (totalGetMenuCalls === 1) return tool.call(args, context);
+                forecastGetMenuCalls += 1;
+                throw new Error("kitchen-mcp down");
+              },
+            }
+          : tool,
+      ),
+    }));
+
+    const { status, attempts, error, statuses, rows } = await runForecast(
+      ids.outletA,
+      "2027-12-24",
+      {
+        servers: failingServers,
+        expectedRunStatus: "failed",
+      },
+    );
+
+    expect(status).toBe("failed");
+    expect(attempts).toBe(4);
+    expect(forecastGetMenuCalls).toBe(5); // 4 attempts + 1 fallback
+    expect(error).toContain("kitchen-mcp down");
+    expect(error).toContain("fallback failed");
+    expect(statuses).toEqual(["succeeded", "succeeded", "failed", "pending", "pending"]);
+    expect(rows).toHaveLength(0);
   });
 });
