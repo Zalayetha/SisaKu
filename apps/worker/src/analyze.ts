@@ -17,7 +17,11 @@ export const MIN_DAYS_COUNTED = 7;
 export const SPIKE_RATIO = 2;
 /** ...and at least this many kg. */
 export const MIN_SPIKE_KG = 1;
-/** Spikes investigated a night, largest first; the others stay unexplained. */
+/**
+ * Spikes investigated a night, largest first; the others stay unexplained. They run one after
+ * another within the step's default 5-minute limit (spec #89): at worst 3 runs of up to 7 model
+ * requests each, 21 in a row. An attempt past the limit is retried from the start.
+ */
 export const MAX_INVESTIGATIONS = 3;
 
 const kg = z.number().nonnegative();
