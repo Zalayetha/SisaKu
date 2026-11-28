@@ -139,7 +139,9 @@ async function findSpikes({ run, servers }: StepContext): Promise<AnalyzeOutput>
 
 /**
  * The Analyze step: flags waste spikes from fixed code, then has the spike investigator explain
- * the largest few, one run after another (ADR 0018). A failed investigation fails the attempt.
+ * the largest few, one run after another (ADR 0018). A failed investigation fails the attempt, and
+ * nothing is saved from it; once the attempts run out, the fallback saves the spikes from fixed
+ * code alone, none investigated, and the step is degraded.
  */
 export function createAnalyzeStep({
   model,
@@ -171,5 +173,7 @@ export function createAnalyzeStep({
       }
       return { ...found, spikes };
     },
+    // No model here: the model failing is why the fallback runs.
+    fallback: findSpikes,
   };
 }

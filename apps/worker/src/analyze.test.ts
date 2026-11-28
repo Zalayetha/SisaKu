@@ -64,10 +64,16 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
       await expect
         .poll(async () => (await readRun(db, runId)).run.status, { timeout: 10_000 })
         .not.toBe("running");
-      const { run, jobs } = await readRun(db, runId);
+      const { run, jobs, job: jobOf, statuses } = await readRun(db, runId);
       expect(run.status, jobs.map((j) => j.error).join("; ")).toBe("succeeded");
-      const job = (await readRun(db, runId)).job("analyze");
-      return { status: job.status, output: job.output as AnalyzeOutput };
+      const job = jobOf("analyze");
+      return {
+        status: job.status,
+        attempts: job.attempts,
+        error: job.error,
+        statuses,
+        output: job.output as AnalyzeOutput,
+      };
     } finally {
       await worker.stop();
     }
@@ -424,5 +430,70 @@ describe.skipIf(!testDbUrl || !testRedisUrl)("Analyze step", () => {
     ]);
     await analyze(ids.outletA, date, { model, servers });
     expect(calls).toEqual([{ outlet_id: ids.outletA, from: date, to: date }]);
+  });
+
+  describe("when the model fails", () => {
+    it("is degraded after four attempts, with every spike unexplained and uninvestigated", async () => {
+      const date = "2027-09-15";
+      await sell(ids.outletA, [ids.nasi, ids.rendang], [...window(date), date]);
+      await waste(ids.outletA, ids.nasi, 2, [date]);
+      await waste(ids.outletA, ids.rendang, 1.2, [date]);
+      const model = new ScriptedModel(() => ({ error: new Error("model is down") }));
+      const { status, attempts, error, statuses, output } = await analyze(ids.outletA, date, {
+        model,
+      });
+      expect(status).toBe("degraded");
+      expect(attempts).toBe(4);
+      expect(error).toMatch(/model is down/);
+      expect(statuses).toEqual(["succeeded", "degraded", "succeeded", "succeeded", "succeeded"]);
+      expect(output.waste_by_item.map((i) => i.item_id)).toEqual([ids.nasi, ids.rendang]);
+      expect(output.spikes).toMatchObject([
+        { item_id: ids.nasi, investigated: false, explanation: { kind: "unexplained" } },
+        { item_id: ids.rendang, investigated: false, explanation: { kind: "unexplained" } },
+      ]);
+      // One request an attempt, each failing the first investigation; none from the fallback.
+      expect(model.requests).toHaveLength(4);
+    });
+
+    it("retries once after a model error, and saves the explanations from the retry", async () => {
+      const date = "2027-10-15";
+      await sell(ids.outletA, [ids.rendang], [...window(date), date]);
+      await waste(ids.outletA, ids.rendang, 2, [date]);
+      const model = ScriptedModel.of([
+        { error: new Error("rate limited") },
+        explain("spoilage", "All 1 entries were spoilage."),
+      ]);
+      const { status, attempts, output } = await analyze(ids.outletA, date, { model });
+      expect(status).toBe("succeeded");
+      expect(attempts).toBe(2);
+      expect(output.spikes).toMatchObject([
+        { investigated: true, explanation: { kind: "spoilage" } },
+      ]);
+    });
+
+    it("fails the attempt when a later investigation fails, keeping nothing from it", async () => {
+      const date = "2027-11-15";
+      await sell(ids.outletA, [ids.nasi, ids.rendang], [...window(date), date]);
+      await waste(ids.outletA, ids.nasi, 2, [date]);
+      await waste(ids.outletA, ids.rendang, 1.2, [date]);
+      // Nasi's investigation answers each time, naming the attempt; rendang's fails the first time.
+      let attempt = 0;
+      const model = new ScriptedModel((request) => {
+        if (!JSON.stringify(request.chatHistory).includes(ids.rendang)) {
+          attempt += 1;
+          return explain("over_prep", `Attempt ${attempt}.`);
+        }
+        return attempt === 1
+          ? { error: new Error("model is down") }
+          : explain("spoilage", `Attempt ${attempt}.`);
+      });
+      const { status, attempts, output } = await analyze(ids.outletA, date, { model });
+      expect(status).toBe("succeeded");
+      expect(attempts).toBe(2);
+      expect(output.spikes).toMatchObject([
+        { item_id: ids.nasi, explanation: { kind: "over_prep", evidence: "Attempt 2." } },
+        { item_id: ids.rendang, explanation: { kind: "spoilage", evidence: "Attempt 2." } },
+      ]);
+    });
   });
 });

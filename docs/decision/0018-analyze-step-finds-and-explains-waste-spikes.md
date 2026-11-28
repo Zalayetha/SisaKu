@@ -24,8 +24,8 @@ Analyze is the second step of the nightly pipeline (ADR 0017, issue #35). It gro
 
 **Failure and storage**
 
-- An investigation that throws fails the whole attempt, so the step's 4 attempts (ADR 0017) start over rather than saving some explanations and dropping others. Reaching the call limit is not a failure.
-- The fallback saves what fixed code computed, with every spike `unexplained`. The step is degraded and the run goes on: a brief that lists spikes without explanations beats no brief.
+- An investigation that throws (a model error, or an abort when the attempt passes its time limit) fails the whole attempt, so the step's 4 attempts (ADR 0017) start over rather than saving some explanations and dropping others. Reaching the call limit is not a failure. Every error is retried alike: telling a lasting one (a bad key, a removed model) from a passing one is left until slow degraded nights show it matters.
+- The fallback reads the waste again and finds the spikes from fixed code, with no model, and saves every spike `investigated: false` and `unexplained`: no investigation finished, so none is marked as one, and `investigated: true` always means the model looked. The step is degraded with the error that degraded it, and the run goes on: a brief that lists spikes without explanations beats no brief. The fallback gives no explanation of its own from rules; a second explainer would disagree with the investigator on the same spike. If kitchen-mcp is what failed, the fallback fails too and the run stops, as Ingest would have (details amended 2026-11-28 in #94).
 - The output (waste by item, waste by cause, spikes) is JSON in `pipeline_job_results` only. No table: nobody edits spikes, nothing points at them, and a weekly report can read the last 7 Analyze results.
 
 **Code and instructions**
@@ -37,5 +37,6 @@ Analyze is the second step of the nightly pipeline (ADR 0017, issue #35). It gro
 
 - The 2× threshold, 1 kg floor, 7 days and top 3 are numbers in code, not in the prompt, and can change without an instructions version.
 - A night with many spikes still makes at most 3 investigations of up to 5 tool calls each per attempt; across 4 attempts the worst case is 60 tool calls.
+- A model that hangs rather than errors keeps each attempt to its 5-minute limit, so the fallback comes after about 23 minutes (4 attempts and the retries' 3.5 minutes of waiting). A model that errors at once degrades the step in about 4 minutes.
 - Tests use a fixture and a scripted model, so they prove the plumbing, not that a real LLM explains well. An eval with known answers, checking that every number in an explanation came from a tool result, is follow-up work.
 - The mock-data generator plants no waste spike on purpose. Its holidays (demand down, prep as usual) and the week after a demand spike (prep from an inflated week) produce real ones for the demo.
